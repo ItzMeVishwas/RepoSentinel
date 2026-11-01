@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from reposentinel.checks import default_checks
@@ -25,6 +26,22 @@ def write_files(root: Path, files: dict[str, str | bytes]) -> Path:
 def scan(root: Path, limits: ScanLimits | None = None) -> ScanReport:
     """Run every native check against ``root``."""
     return run_scan(root, default_checks(), limits)
+
+
+def create_junction(target: Path, link: Path) -> None:
+    """Create an NTFS directory junction at ``link`` pointing to ``target`` (Windows only).
+
+    Uses CPython's ``_winapi.CreateJunction`` (also used by CPython's own test
+    suite); unlike symbolic links, junctions need no special privilege. The
+    ``sys.platform`` check is what lets type checkers on other platforms skip
+    this Windows-only API (it is declared only for win32); callers also skip
+    their tests elsewhere.
+    """
+    if sys.platform != "win32":
+        raise RuntimeError("directory junctions exist only on Windows")
+    import _winapi
+
+    _winapi.CreateJunction(str(target), str(link))
 
 
 def rule_ids(report: ScanReport) -> list[str]:

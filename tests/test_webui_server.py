@@ -31,7 +31,7 @@ from reposentinel.reporting.compare_json import comparison_to_dict
 from reposentinel.webui import api, server
 from tests import synthetic
 from tests.conftest import RepoFactory
-from tests.helpers import scan
+from tests.helpers import create_junction, scan
 from tests.test_leak_regression import FORBIDDEN, WORKFLOW
 
 STATIC = {
@@ -419,13 +419,11 @@ def test_scan_matches_the_cli_engine(running: Running, make_repo: RepoFactory) -
 def test_scan_through_the_ui_does_not_follow_a_junction(
     running: Running, tmp_path: Path, make_repo: RepoFactory
 ) -> None:
-    import _winapi
-
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.py").write_text(f'TOKEN = "{synthetic.GITHUB_TOKEN}"\n')
     root = make_repo({"a.py": "1\n"})
-    _winapi.CreateJunction(str(outside), str(root / "link"))
+    create_junction(outside, root / "link")
     status, data = api_json(running, "/api/scan", {"path": str(root)})
     assert status == 200
     assert data["report"]["findings"] == []
@@ -720,6 +718,9 @@ def test_unsupported_methods_are_refused_with_security_headers(
         pytest.param(
             b"GET / HTTP/9.9" + CRLF + b"Host: 127.0.0.1" + CRLF * 2, 505, id="bad-version"
         ),
+        pytest.param(b"GET / HTTP/1.x" + CRLF * 2, 400, id="unparsable-version"),
+        # HTTP/0.9 has no status line or headers, so it is refused rather than served.
+        pytest.param(b"GET /" + CRLF * 2, 505, id="http-0.9"),
         pytest.param(b"GET /" + b"a" * 70000 + b" HTTP/1.1" + CRLF * 2, 414, id="long-uri"),
         pytest.param(
             b"GET / HTTP/1.1" + CRLF + b"X: " + b"y" * 70000 + CRLF * 2, 431, id="long-header"

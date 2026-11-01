@@ -51,7 +51,8 @@ def test_no_arguments_shows_help() -> None:
 
 
 def test_scan_help_documents_options() -> None:
-    result = invoke("scan", "--help")
+    # A fixed width: in very narrow terminals Rich shortens long option names.
+    result = runner.invoke(cli.app, ["scan", "--help"], env={"COLUMNS": "120"})
     assert result.exit_code == 0
     for option in ("--format", "--output", "--fail-on", "--max-file-size-kb", "--max-files"):
         assert option in plain(result.stdout)

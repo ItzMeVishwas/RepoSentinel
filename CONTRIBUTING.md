@@ -48,6 +48,12 @@ python -m reposentinel scan .
 cd frontend && npm run typecheck && npm run build && npm run e2e
 ```
 
+Build the web interface (`npm run build` in `frontend/`) before running
+`pytest`: a few tests start the real `reposentinel ui`, which needs it.
+RepoSentinel supports Windows, Linux and macOS, and mypy checks platform-specific
+code only for the platform it runs on; to check the others locally, run
+`python -m mypy --platform linux` and `python -m mypy --platform win32`.
+
 `npm run e2e` drives an installed Chrome or Edge against the real server
 (`CHROME_PATH` selects the browser). SARIF output is validated against the
 official schema with `scripts/validate_sarif.py` (see [docs/sarif.md](docs/sarif.md)).
