@@ -29,7 +29,13 @@ export function ProjectsPage() {
       <AddProject />
       {app.projectsError && <ErrorNote message={app.projectsError} />}
       <Section id="project-list" title="Registered projects" count={projects?.length ?? 0}>
-        {!projects || projects.length === 0 ? (
+        {projects === null ? (
+          !app.projectsError && (
+            <p className="loading" role="status">
+              Loading projects...
+            </p>
+          )
+        ) : projects.length === 0 ? (
           <Empty>No projects yet. Register a folder above to start its history.</Empty>
         ) : (
           <ul className="project-list">

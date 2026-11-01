@@ -56,5 +56,16 @@ the first release.
 ### Known limitations
 
 * Git history and dependencies are not scanned.
-* Hosted CI has not run yet; Linux, macOS, Firefox, Safari and screen readers
-  are not verified; no external user has validated the product.
+* macOS, Firefox, Safari and screen readers are not verified; no external
+  user has validated the product.
+
+### Fixed after the first CI runs
+
+* Type checking on Linux and macOS (Windows-only test helpers), tests that
+  depended on the terminal width or the temporary-folder path, and the missing
+  web interface build in CI test jobs.
+* Python 3.12: error responses to malformed requests were sent without a status
+  line or security headers; HTTP/0.9 requests are now refused.
+* Web interface: pages showed "nothing yet" (or the first-run welcome) while
+  their data was still loading; they now say that they are loading. Resizing a
+  window to phone width no longer animates the sidebar across the page.

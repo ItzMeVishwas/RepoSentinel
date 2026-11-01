@@ -102,6 +102,11 @@ function Console({ session }: { session: Session }) {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  // The phone menu slides only while it is being opened or closed. Without this,
+  // crossing the narrow-screen breakpoint (resizing a window) would animate the
+  // desktop sidebar sliding across the page, covering the menu button meanwhile.
+  const [menuMotion, setMenuMotion] = useState(false);
+  const menuMotionTimer = useRef<number | undefined>(undefined);
   const menuButton = useRef<HTMLButtonElement>(null);
   const firstNav = useRef<HTMLButtonElement>(null);
 
@@ -124,9 +129,22 @@ function Console({ session }: { session: Session }) {
     document.documentElement.dataset.motion = reduceMotion ? 'reduce' : 'system';
   }, [reduceMotion]);
 
+  const menuOpenNow = useRef(false);
+  const setMenu = useCallback((open: boolean) => {
+    // Only a real open/close animates (navigating closes an already closed menu).
+    if (menuOpenNow.current === open) return;
+    menuOpenNow.current = open;
+    window.clearTimeout(menuMotionTimer.current);
+    setMenuMotion(true);
+    setMenuOpen(open);
+    // Longer than the slide (--slow, 220 ms); then layout changes stop animating.
+    menuMotionTimer.current = window.setTimeout(() => setMenuMotion(false), 400);
+  }, []);
+  useEffect(() => () => window.clearTimeout(menuMotionTimer.current), []);
+
   const go = useCallback((next: Page) => {
     markNavigation();
-    setMenuOpen(false);
+    setMenu(false);
     setPage((current) => {
       if (current === next) {
         // The page is already open: move focus to its heading as a new page would.
@@ -135,7 +153,7 @@ function Console({ session }: { session: Session }) {
       return next;
     });
     window.scrollTo({ top: 0 });
-  }, []);
+  }, [setMenu]);
 
   const notify = useCallback((message: string, tone: Toast['tone'] = 'ok') => {
     const id = Date.now() + Math.random();
@@ -150,13 +168,13 @@ function Console({ session }: { session: Session }) {
     firstNav.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setMenuOpen(false);
+        setMenu(false);
         menuButton.current?.focus();
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [menuOpen]);
+  }, [menuOpen, setMenu]);
 
   const state: AppState = useMemo(
     () => ({
@@ -188,7 +206,7 @@ function Console({ session }: { session: Session }) {
       <a className="skip-link" href="#main">
         Skip to main content
       </a>
-      <div className={`console ${menuOpen ? 'menu-open' : ''}`}>
+      <div className={`console ${menuOpen ? 'menu-open' : ''} ${menuMotion ? 'menu-motion' : ''}`}>
         <aside className="sidebar" id="sidebar" aria-label="RepoSentinel">
           <div className="sidebar-head">
             <Brand />
@@ -196,7 +214,7 @@ function Console({ session }: { session: Session }) {
               type="button"
               className="icon-button sidebar-close"
               onClick={() => {
-                setMenuOpen(false);
+                setMenu(false);
                 menuButton.current?.focus();
               }}
             >
@@ -238,11 +256,11 @@ function Console({ session }: { session: Session }) {
             <p className="version">Version {session.version}</p>
           </div>
         </aside>
-        {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenuOpen(false)} />}
+        {menuOpen && <div className="scrim" aria-hidden="true" onClick={() => setMenu(false)} />}
         <div className="workspace">
           <TopBar
             page={label}
-            onMenu={() => setMenuOpen(true)}
+            onMenu={() => setMenu(true)}
             menuOpen={menuOpen}
             menuButton={menuButton}
           />

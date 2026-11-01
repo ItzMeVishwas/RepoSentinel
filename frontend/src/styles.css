@@ -542,10 +542,11 @@ td.pick { width: 2.5rem; }
 }
 
 @media (prefers-reduced-motion: no-preference) and (max-width: 900px) {
-  /* The phone menu. Opening: visible at once (so focus can move into it);
-     closing: hidden only after the slide. */
-  :root:not([data-motion='reduce']) .sidebar { transition: transform var(--slow) var(--ease), visibility 0s linear var(--slow); }
-  :root:not([data-motion='reduce']) .menu-open .sidebar { transition: transform var(--slow) var(--ease), visibility 0s; }
+  /* The phone menu slides only while it is opened or closed (.menu-motion), not
+     when a window is resized across the breakpoint. Opening: visible at once (so
+     focus can move into it); closing: hidden only after the slide. */
+  :root:not([data-motion='reduce']) .menu-motion .sidebar { transition: transform var(--slow) var(--ease), visibility 0s linear var(--slow); }
+  :root:not([data-motion='reduce']) .menu-motion.menu-open .sidebar { transition: transform var(--slow) var(--ease), visibility 0s; }
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-motion='reduce']) :is(button, .nav-item, .chip, .finding-row, .action-link) {

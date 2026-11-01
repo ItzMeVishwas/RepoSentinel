@@ -43,6 +43,10 @@ export function SettingsPage() {
             Local history is off for this session (<code>--no-history</code>). Nothing is saved;
             one-off scans and report comparisons still work.
           </p>
+        ) : !info && !error ? (
+          <p className="loading" role="status">
+            Loading local data details...
+          </p>
         ) : info ? (
           <>
             <dl className="kv">

@@ -15,7 +15,8 @@ interface Activity {
 export function OverviewPage() {
   const app = useApp();
   const [error, setError] = useState<string | null>(null);
-  const [activity, setActivity] = useState<Activity[] | null>(null);
+  // null while loading; "failed" if the request failed (shown as such, not as "empty").
+  const [activity, setActivity] = useState<Activity[] | 'failed' | null>(null);
   const project = currentProject(app);
   const scan = app.active;
 
@@ -24,6 +25,7 @@ export function OverviewPage() {
     try {
       setActivity((await post<{ scans: Activity[] }>('api/activity', {})).scans);
     } catch (failure) {
+      setActivity('failed');
       setError(messageOf(failure));
     }
   }, [app.session.history]);
@@ -41,8 +43,19 @@ export function OverviewPage() {
     }
   }
 
+  if (!scan && app.session.history && app.projects === null && !app.projectsError) {
+    // The project list is still loading: not a first run, so no welcome screen yet.
+    return (
+      <div className="view">
+        <PageHeading title="Overview" />
+        <p className="loading" role="status">
+          Loading your projects...
+        </p>
+      </div>
+    );
+  }
   if (!scan && !project) {
-    return <FirstRun error={error} act={act} />;
+    return <FirstRun error={error ?? app.projectsError} act={act} />;
   }
   const latest = project?.latest ?? null;
   const showsLatest = scan?.source === 'project' && scan.historyScanId === latest?.id;
@@ -339,12 +352,21 @@ function NextActions({ scan, go }: { scan: ActiveScan; go: (page: Page) => void 
   );
 }
 
-function RecentActivity(props: { activity: Activity[] | null; act: (action: () => Promise<void>) => Promise<void> }) {
+function RecentActivity(props: {
+  activity: Activity[] | 'failed' | null;
+  act: (action: () => Promise<void>) => Promise<void>;
+}) {
   const app = useApp();
   return (
-    <section className="section" aria-labelledby="recent">
+    <section className="section" aria-labelledby="recent" aria-busy={props.activity === null}>
       <h2 id="recent">Recent scans</h2>
-      {!props.activity || props.activity.length === 0 ? (
+      {props.activity === null ? (
+        <p className="loading" role="status">
+          Loading recent scans...
+        </p>
+      ) : props.activity === 'failed' ? (
+        <Empty>Recent scans could not be loaded (see the error above).</Empty>
+      ) : props.activity.length === 0 ? (
         <Empty>No saved scans yet.</Empty>
       ) : (
         <div className="table-wrap">

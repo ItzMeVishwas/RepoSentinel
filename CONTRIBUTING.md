@@ -55,8 +55,11 @@ code only for the platform it runs on; to check the others locally, run
 `python -m mypy --platform linux` and `python -m mypy --platform win32`.
 
 `npm run e2e` drives an installed Chrome or Edge against the real server
-(`CHROME_PATH` selects the browser). SARIF output is validated against the
-official schema with `scripts/validate_sarif.py` (see [docs/sarif.md](docs/sarif.md)).
+(`CHROME_PATH` selects the browser). To check that it does not depend on a fast
+machine, run it with `E2E_CPU_SLOWDOWN=6` (a slower page) or
+`E2E_API_DELAY_MS=400` (a slower server), as on small CI runners. SARIF output
+is validated against the official schema with `scripts/validate_sarif.py` (see
+[docs/sarif.md](docs/sarif.md)).
 The CI workflow in `.github/workflows/ci.yml` runs all of these.
 
 ## Rules for code and tests

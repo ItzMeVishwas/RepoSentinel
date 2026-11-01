@@ -182,7 +182,7 @@ installation, version-pinning and real-binary testing costs as Gitleaks.
 |---|---|---|
 | 1 | Local projects, scan history, one-click comparison, timeline, recurrence ("detected again"), SARIF 2.1.0 export, redesigned UI | **Implemented 2026-10-28** (tested internally; see docs/webui.md and docs/sarif.md) |
 | 1b | Release preparation: audit, SARIF schema validation, redesigned console, synthetic demo, release documentation | **Done 2026-11-01** |
-| 2 | First hosted CI run and a usability session with 3 to 5 developers (product strategy section 12.3) | Owner decision; prerequisite for everything below |
+| 2 | Hosted CI passing on every job (first runs 2026-11-01), and a usability session with 3 to 5 developers (product strategy section 12.3) | CI: in progress. Usability session: owner decision; prerequisite for everything below |
 | 3 | Git-history secret scanning (section 3), starting with the metadata reader and a time-boxed reader spike | **Next major capability** |
 | 4 | Finding decisions: false positive, accepted risk with expiry, notes; never hiding a finding without a visible record | After 3 or in parallel |
 | 5 | SARIF import (provenance-labelled, untrusted input) | After 4 |
