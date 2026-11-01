@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+{% include "_security_meta.html.j2" +%}
+<title>RepoSentinel report</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0; --panel: #f6f8fa;
+    --high: #b42318; --medium: #9a6700; --low: #0969da; --info: #59636e;
+    --ok: #1a7f37; --bad: #b42318; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d; --panel: #151b23;
+      --high: #ff7b72; --medium: #d29922; --low: #58a6ff; --info: #9198a1;
+      --ok: #3fb950; --bad: #ff7b72; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1rem; margin: 20px 0 8px; }
+  code { font: 0.9em ui-monospace, "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); margin: 0; }
+  .meta code { color: var(--fg); }
+  .outcome { margin: 20px 0; padding: 12px 16px; border-radius: 8px; border: 1px solid; font-weight: 600; }
+  .outcome-clean { border-color: var(--ok); color: var(--ok); }
+  .outcome-findings { border-color: var(--warn); color: var(--warn); }
+  .outcome-incomplete { border-color: var(--bad); color: var(--bad); }
+  .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .count { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  .count b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+  .count span { color: var(--muted); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.04em; }
+  .finding { border: 1px solid var(--border); border-left-width: 4px; border-radius: 6px;
+             padding: 10px 14px; margin: 10px 0; background: var(--panel); }
+  .sev-high { border-left-color: var(--high); } .sev-medium { border-left-color: var(--medium); }
+  .sev-low { border-left-color: var(--low); } .sev-info { border-left-color: var(--info); }
+  .finding header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .finding dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  .finding dt { color: var(--muted); }
+  .finding dd { margin: 0; min-width: 0; }
+  .badge { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .badge.high { color: var(--high); } .badge.medium { color: var(--medium); }
+  .badge.low { color: var(--low); } .badge.info { color: var(--info); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .status-completed { color: var(--ok); } .status-failed { color: var(--bad); font-weight: 600; }
+  .status-skipped { color: var(--warn); font-weight: 600; }
+  .problem { color: var(--bad); }
+  .note { color: var(--warn); }
+  .table-wrap { overflow-x: auto; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>RepoSentinel scan report</h1>
+<p class="meta">Target <code>{{ report.target | clean }}</code> &middot; scanned {{ report.scanned_at.isoformat() }} &middot; RepoSentinel {{ report.tool_version }}</p>
+
+<div class="outcome outcome-{{ outcome }}">{{ headline }}</div>
+{% for note in notes %}
+<p class="note"><strong>Note:</strong> {{ note }}</p>
+{% endfor %}
+
+<div class="counts">
+{% for severity in severity_order %}
+  <div class="count"><b>{{ severity_counts[severity] }}</b><span>{{ severity.value }}</span></div>
+{% endfor %}
+  <div class="count"><b>{{ report.files_in_scope }}</b><span>files in scope</span></div>
+</div>
+
+<h2>Findings</h2>
+{% if not report.findings %}
+<p>No findings from the checks that ran.</p>
+{% endif %}
+{% for severity in severity_order %}
+{% set group = report.findings | selectattr("severity", "equalto", severity) | list %}
+{% if group %}
+<h3>{{ severity.value | capitalize }} ({{ group | length }})</h3>
+{% for finding in group %}
+<article class="finding sev-{{ finding.severity.value }}">
+  <header>
+    <span class="badge {{ finding.severity.value }}">{{ finding.severity.value }}</span>
+    <code>{{ finding.rule_id | clean }}</code>
+    <strong>{{ finding.title | clean }}</strong>
+  </header>
+  <dl>
+    <dt>Location</dt><dd><code>{{ finding.location | clean }}</code></dd>
+    <dt>Summary</dt><dd>{{ finding.summary | clean }}</dd>
+    <dt>Evidence</dt><dd><code>{{ finding.evidence | clean }}</code></dd>
+    <dt>Confidence</dt><dd>{{ finding.confidence.value }}</dd>
+  </dl>
+</article>
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+{% if remediation %}
+<h2>How to fix</h2>
+{% for rule_id, (title, text) in remediation.items() %}
+<h3><code>{{ rule_id | clean }}</code> {{ title | clean }}</h3>
+<p>{{ text | clean }}</p>
+{% endfor %}
+{% endif %}
+
+<h2>Checks</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Check</th><th>Status</th><th>Examined</th><th>Findings</th><th>Note</th></tr></thead>
+  <tbody>
+{% for check in report.checks %}
+    <tr>
+      <td>{{ check.name | clean }}</td>
+      <td class="status-{{ check.status.value }}">{{ check.status.value }}</td>
+      <td class="num">{{ "-" if check.examined is none else check.examined }}</td>
+      <td class="num">{{ check.finding_count }}</td>
+      <td>{{ check.message | clean }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+<p>{{ status_counts["completed"] }} completed, {{ status_counts["failed"] }} failed, {{ status_counts["skipped"] }} skipped.</p>
+
+<h2>Coverage</h2>
+<p>{{ report.files_in_scope }} files in scope.
+{% for reason, count in report.coverage_counts().items() %}{% if not reason.is_error %} {{ reason.value | replace("_", " ") }}: {{ count }}.{% endif %}{% endfor %}</p>
+{% if excluded %}
+<p>Excluded:
+{% for issue in excluded %}<code>{{ issue.path | clean }}</code> ({{ issue.detail | clean }}){% if not loop.last %}, {% endif %}{% endfor %}
+</p>
+{% endif %}
+{% if report.coverage_errors %}
+<p class="problem"><strong>{{ report.coverage_errors | length }} problem(s) prevented a complete scan:</strong></p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Path</th><th>Problem</th><th>Detail</th></tr></thead>
+  <tbody>
+{% for issue in report.coverage_errors %}
+    <tr><td><code>{{ issue.path | clean }}</code></td><td>{{ issue.reason.value | replace("_", " ") }}</td><td>{{ issue.detail | clean }}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<footer>{{ disclaimer }}</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+{% include "_security_meta.html.j2" +%}
+<title>RepoSentinel comparison</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0; --panel: #f6f8fa;
+    --high: #b42318; --medium: #9a6700; --low: #0969da; --info: #59636e;
+    --ok: #1a7f37; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d; --panel: #151b23;
+      --high: #ff7b72; --medium: #d29922; --low: #58a6ff; --info: #9198a1;
+      --ok: #3fb950; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1rem; margin: 20px 0 8px; }
+  code { font: 0.9em ui-monospace, "Cascadia Mono", Consolas, monospace; overflow-wrap: anywhere; }
+  .meta { color: var(--muted); margin: 0; }
+  .meta code { color: var(--fg); }
+  .headline { margin: 20px 0 4px; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border);
+              background: var(--panel); font-weight: 600; }
+  .headline p { margin: 0; }
+  .finding { border: 1px solid var(--border); border-left-width: 4px; border-radius: 6px;
+             padding: 10px 14px; margin: 10px 0; background: var(--panel); }
+  .sev-high { border-left-color: var(--high); } .sev-medium { border-left-color: var(--medium); }
+  .sev-low { border-left-color: var(--low); } .sev-info { border-left-color: var(--info); }
+  .finding header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+  .finding dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }
+  .finding dt { color: var(--muted); }
+  .finding dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .badge { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+  .badge.high { color: var(--high); } .badge.medium { color: var(--medium); }
+  .badge.low { color: var(--low); } .badge.info { color: var(--info); }
+  .status { font-weight: 600; }
+  .reminder { font-weight: 600; color: var(--warn); }
+  .none { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>RepoSentinel comparison</h1>
+<p class="meta">Old: <code>{{ result.old.label | clean }}</code> &middot; scanned {{ result.old.scanned_at.isoformat() }} &middot; outcome {{ result.old.outcome.value }} &middot; RepoSentinel {{ result.old.tool_version | clean }}</p>
+<p class="meta">New: <code>{{ result.new.label | clean }}</code> &middot; scanned {{ result.new.scanned_at.isoformat() }} &middot; outcome {{ result.new.outcome.value }} &middot; RepoSentinel {{ result.new.tool_version | clean }}</p>
+{% if result.targets_match %}
+<p class="meta">Target <code>{{ result.new.target | clean }}</code></p>
+{% else %}
+<p class="meta">Old target <code>{{ result.old.target | clean }}</code> &middot; new target <code>{{ result.new.target | clean }}</code> &middot; declared the same repository by you (<code>--different-roots</code>)</p>
+{% endif %}
+
+<div class="headline" role="status">
+  <p>{{ headline | clean }}</p>
+  <p>{{ scope }}</p>
+</div>
+
+<section aria-labelledby="detected">
+<h2 id="detected">{{ sections.detected }} ({{ detected | length }})</h2>
+{% if not detected %}
+<p class="none">None.</p>
+{% endif %}
+{% set fix_shown = namespace(rules=[]) %}
+{% for severity in severity_order %}
+{% set group = detected | selectattr("severity", "equalto", severity) | list %}
+{% if group %}
+<h3>{{ severity.value | capitalize }} ({{ group | length }})</h3>
+{% for finding in group %}
+<article class="finding sev-{{ finding.severity.value }}">
+  <header>
+    <span class="badge {{ finding.severity.value }}">{{ finding.severity.value }}</span>
+    <code>{{ finding.rule_id | clean }}</code>
+    <strong>{{ finding.title | clean }}</strong>
+    <span class="status">{{ finding | status_text | clean }}</span>
+  </header>
+  <dl>
+    <dt>Location</dt><dd><code>{{ finding | location_text | clean }}</code></dd>
+    <dt>Evidence</dt><dd><code>{{ finding.evidence | clean }}</code></dd>
+    <dt>Why</dt><dd>{{ finding.explanation | clean }}</dd>
+    <dt>Confidence</dt><dd>{{ finding.confidence.value }}</dd>
+{% if finding.rule_id in fix_shown.rules %}
+    <dt>Fix</dt><dd>See <code>{{ finding.rule_id | clean }}</code> above.</dd>
+{% else %}
+    <dt>Fix</dt><dd>{{ finding.remediation | clean }}</dd>
+{% set fix_shown.rules = fix_shown.rules + [finding.rule_id] %}
+{% endif %}
+  </dl>
+</article>
+{% endfor %}
+{% endif %}
+{% endfor %}
+</section>
+
+<section aria-labelledby="unknown">
+<h2 id="unknown">{{ sections.unknown }} ({{ result.unknown_count }})</h2>
+{% if not result.unknown_count %}
+<p class="none">None: every finding in the old report was re-checked.</p>
+{% endif %}
+{% for finding in unknown %}
+<article class="finding sev-{{ finding.severity.value }}">
+  <header>
+    <span class="badge {{ finding.severity.value }}">{{ finding.severity.value }}</span>
+    <code>{{ finding.rule_id | clean }}</code>
+    <strong>{{ finding.title | clean }}</strong>
+    <span class="status">{{ finding | status_text | clean }}</span>
+  </header>
+  <dl>
+    <dt>Location</dt><dd><code>{{ finding | location_text | clean }}</code></dd>
+    <dt>Reason</dt><dd>{{ finding.explanation | clean }}</dd>
+  </dl>
+</article>
+{% endfor %}
+{% if result.check_problems %}
+<h3>Checks</h3>
+<ul>
+{% for problem in result.check_problems %}
+  <li>{{ problem | clean }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if result.coverage_errors %}
+<h3>Files or folders the new scan could not cover ({{ result.coverage_errors | length }})</h3>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Path</th><th scope="col">Problem</th><th scope="col">Detail</th></tr></thead>
+  <tbody>
+{% for issue in result.coverage_errors %}
+    <tr><td><code>{{ issue.path | clean }}</code></td><td>{{ issue.reason.value | replace("_", " ") }}</td><td>{{ issue.detail | clean }}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+</section>
+
+<section aria-labelledby="not-examined">
+<h2 id="not-examined">{{ sections.not_examined }} ({{ result.not_examined | length }})</h2>
+{% if not result.not_examined %}
+<p class="none">Nothing was skipped by policy (exclusions, size limit, binary files, links).</p>
+{% else %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Path</th><th scope="col">Reason</th><th scope="col">Detail</th></tr></thead>
+  <tbody>
+{% for issue in result.not_examined %}
+    <tr><td><code>{{ issue.path | clean }}</code></td><td>{{ issue.reason.value | replace("_", " ") }}</td><td>{{ issue.detail | clean }}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+</section>
+
+<section aria-labelledby="reminders">
+<h2 id="reminders">{{ sections.reminders }} ({{ reminders | length }})</h2>
+{% if not reminders %}
+<p class="none">None: no credential finding became less detected.</p>
+{% else %}
+<p class="reminder">{{ reminder }}</p>
+<ul>
+{% for finding in reminders %}
+  <li><code>{{ finding.rule_id | clean }}</code> <code>{{ finding | location_text | clean }}</code> ({{ finding | status_text | clean }})</li>
+{% endfor %}
+</ul>
+{% endif %}
+</section>
+
+<section aria-labelledby="no-longer">
+<h2 id="no-longer">{{ sections.no_longer }} ({{ no_longer | length }})</h2>
+{% if not no_longer %}
+<p class="none">None.</p>
+{% endif %}
+{% for finding in no_longer %}
+<article class="finding sev-{{ finding.severity.value }}">
+  <header>
+    <span class="badge {{ finding.severity.value }}">{{ finding.severity.value }}</span>
+    <code>{{ finding.rule_id | clean }}</code>
+    <strong>{{ finding.title | clean }}</strong>
+    <span class="status">{{ finding | status_text | clean }}</span>
+  </header>
+  <dl>
+    <dt>Location</dt><dd><code>{{ finding | location_text | clean }}</code></dd>
+    <dt>Re-check</dt><dd>{{ finding.explanation | clean }}</dd>
+    <dt>Does not show</dt><dd>{{ finding.recheck_limits | clean }}</dd>
+  </dl>
+</article>
+{% endfor %}
+</section>
+
+<section aria-labelledby="checks">
+<h2 id="checks">Checks</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th scope="col">Check</th><th scope="col">Old scan</th><th scope="col">New scan</th><th scope="col">Examined (new)</th></tr></thead>
+  <tbody>
+{% for check in result.checks %}
+    <tr>
+      <th scope="row">{{ check.name | clean }}</th>
+      <td>{{ check.old_status.value if check.old_status else "did not run" }}</td>
+      <td>{{ check.new_status.value if check.new_status else "did not run" }}</td>
+      <td class="num">{{ "-" if check.new_examined is none else check.new_examined }}</td>
+    </tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+</section>
+
+{% if result.config_differences or result.notes %}
+<section aria-labelledby="notes">
+<h2 id="notes">Notes</h2>
+<ul>
+{% for difference in result.config_differences %}
+  <li><strong>Settings differ:</strong> {{ difference | clean }}</li>
+{% endfor %}
+{% for note in result.notes %}
+  <li>{{ note | clean }}</li>
+{% endfor %}
+</ul>
+</section>
+{% endif %}
+
+<section aria-labelledby="summary">
+<h2 id="summary">Summary</h2>
+{% for sentence in summary %}
+<p>{{ sentence | clean }}</p>
+{% endfor %}
+<p>{{ exit_explanation }}</p>
+</section>
+
+<footer>{{ disclaimer }}</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Dependabot version updates (they take effect only once the repository is on
+# GitHub and Dependabot is enabled). Updates arrive as pull requests for review;
+# nothing is merged automatically.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

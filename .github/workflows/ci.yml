@@ -1,0 +1,256 @@
+# Continuous integration for RepoSentinel.
+#
+# Security choices:
+# * Triggered by push and pull_request only. Pull requests from forks then
+#   run with a read-only token and no secrets, so code from a pull request
+#   never runs with privileged credentials. pull_request_target and
+#   workflow_run are deliberately not used.
+# * The GITHUB_TOKEN can only read repository contents, and actions/checkout
+#   does not store it in .git/config (persist-credentials: false).
+# * Actions are pinned to full commit SHAs. The comment gives the reviewed
+#   release; update both together (Dependabot can do this).
+# * No secrets are used. Nothing is uploaded, cached or published (no npm
+#   or pip caches either: dependencies come from the lockfile and pins).
+#   The only download besides dependencies is the official SARIF schema,
+#   checked against a pinned SHA-256 (job "sarif").
+# * npm runs with --ignore-scripts, so no dependency's install script runs.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install RepoSentinel with development tools
+        run: python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Type check
+        run: python -m mypy
+
+      - name: Run tests
+        env:
+          # Linux can create symbolic links without extra privileges, so the
+          # symbolic-link tests must run there: with this set, failing to
+          # create a link fails the test instead of skipping it.
+          REPOSENTINEL_REQUIRE_SYMLINK_TESTS: ${{ runner.os == 'Linux' && '1' || '0' }}
+        run: python -m pytest -ra
+
+      - name: Check the generated rules reference
+        run: python scripts/generate_rules_doc.py --check
+
+      - name: Scan this repository with RepoSentinel
+        run: python -m reposentinel scan . --no-color
+
+  frontend:
+    name: Web interface (TypeScript check and production build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install the exact dependencies from the lockfile
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+
+  package:
+    name: Build, check, install and smoke-test the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install the release tools
+        run: python -m pip install "build==1.3.0" "twine==7.0.0"
+
+      # First, a wheel WITHOUT the web interface (as built from a checkout that
+      # skipped npm): every command but `ui` must work, and `ui` must explain.
+      - name: Build a wheel without the web interface
+        run: python -m build --wheel --outdir "$RUNNER_TEMP/dist-no-ui"
+
+      - name: Install it in a fresh environment and smoke-test it
+        run: |
+          python -m venv "$RUNNER_TEMP/env-no-ui"
+          "$RUNNER_TEMP/env-no-ui/bin/python" -m pip install "$RUNNER_TEMP"/dist-no-ui/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/env-no-ui/bin/python" "$GITHUB_WORKSPACE/scripts/smoke_installed.py" --no-ui
+
+      # Then the release: web interface first, then the sdist and wheel, then
+      # twine check and scripts/check_dist.py (which requires the interface).
+      - name: Build the release archives
+        run: python scripts/build_release.py --outdir dist
+
+      - name: Install the wheel in a fresh environment and smoke-test it
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-env"
+          "$RUNNER_TEMP/wheel-env/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-env/bin/reposentinel" --version
+          "$RUNNER_TEMP/wheel-env/bin/python" "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
+
+  browser:
+    name: Web interface end to end (real Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install RepoSentinel
+        run: python -m pip install -e .
+
+      - name: Build the web interface
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      # The test drives the runner's preinstalled Google Chrome with
+      # puppeteer-core (nothing is downloaded) against the real server, on
+      # synthetic repositories only. Hosted Ubuntu runners may not allow
+      # Chrome's sandbox for unprivileged users, hence --no-sandbox here.
+      - name: Run the end-to-end test
+        working-directory: frontend
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+          E2E_CHROME_NO_SANDBOX: "1"
+          PYTHON: python
+        run: npm run e2e
+
+  sarif:
+    name: SARIF output against the official SARIF 2.1.0 schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # jsonschema is a development tool here, not a RepoSentinel dependency.
+      - name: Install RepoSentinel and the schema validator
+        run: python -m pip install -e . "jsonschema==4.25.1"
+
+      # The OASIS schema is downloaded, not stored in this repository; the
+      # script refuses any file whose SHA-256 differs from the reviewed one.
+      - name: Download the official SARIF 2.1.0 schema (errata 01)
+        run: >-
+          curl --fail --silent --show-error --location --max-time 60
+          --output "$RUNNER_TEMP/sarif-schema-2.1.0.json"
+          https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json
+
+      - name: Validate SARIF from the command line for synthetic repositories
+        run: python scripts/validate_sarif.py --schema "$RUNNER_TEMP/sarif-schema-2.1.0.json"
+
+  minimum-dependencies:
+    name: Lowest supported dependency versions (Linux, Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the lowest supported versions
+        # Keep these in sync with the lower bounds in pyproject.toml.
+        run: |
+          python -m pip install "typer==0.18.0" "rich==13.7.0" "PyYAML==6.0.2" "Jinja2==3.1.6" "pytest>=8.3"
+          python -m pip install --no-deps -e .
+
+      - name: Run tests
+        env:
+          REPOSENTINEL_REQUIRE_SYMLINK_TESTS: "1"
+        # Typer releases before 0.26 call a deprecated Click function from their
+        # test helpers. The suite treats every warning as an error, so only
+        # deprecation warnings are relaxed here (see pyproject.toml).
+        run: python -m pytest -ra -W "ignore::DeprecationWarning"

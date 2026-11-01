@@ -1,0 +1,56 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+# Release archives built outside dist/ (build_release.py --outdir)
+*.whl
+*.tar.gz
+
+# Web interface: dependencies and the generated production build
+frontend/node_modules/
+frontend/*.tsbuildinfo
+src/reposentinel/webui/static/
+
+# Coverage output
+.coverage
+.coverage.*
+htmlcov/
+
+# Local environment files (may contain real secrets)
+.env
+.env.*
+!.env.example
+
+# Generated RepoSentinel reports, SARIF files and local history databases
+reposentinel-report*
+reposentinel*.sarif
+.reposentinel/
+*.sqlite3
+*.sqlite
+*.db
+
+# Local tool state (not part of the project)
+.claude-flow/
+.swarm/
+.claude/
+
+# Editor settings, logs, temporary files and OS clutter
+.idea/
+.vscode/
+*.log
+*.tmp
+*.swp
+*~
+.DS_Store
+Thumbs.db

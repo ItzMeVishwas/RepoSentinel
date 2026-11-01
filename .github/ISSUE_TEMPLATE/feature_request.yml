@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you want solved
+      description: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your suggestion
+  - type: markdown
+    attributes:
+      value: |
+        RepoSentinel stays local-first: no accounts, telemetry, cloud services or AI integrations.
+        Planned work is listed in docs/feature-research.md (roadmap).

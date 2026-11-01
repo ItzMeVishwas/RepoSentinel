@@ -1,0 +1,7 @@
+# Keep text files with LF line endings in every checkout, so generated files
+# (docs/rules.md) and tests compare the same bytes on Windows, Linux and macOS.
+* text=auto eol=lf
+
+# Binary files: never convert.
+*.png binary
+*.ico binary
