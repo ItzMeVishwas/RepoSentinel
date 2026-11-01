@@ -1,7 +1,7 @@
 [build-system]
 # Pinned so that release builds are reproducible (it decides the metadata
 # version, which twine must accept). Update it together with the release extra.
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
