@@ -17,7 +17,7 @@ contribution, you agree that it is licensed under the same terms.
 
 ## Development setup
 
-Requirements: Python 3.12 or newer, and Node.js 20 or newer for the web
+Requirements: Python 3.12 or newer, and Node.js 22.12 or newer for the web
 interface.
 
 Windows (PowerShell):

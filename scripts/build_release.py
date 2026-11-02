@@ -7,7 +7,7 @@
    built interface, and the wheel is built from the sdist).
 4. Check the archives: `twine check --strict` and scripts/check_dist.py.
 
-Requirements: Node.js 20 or newer with npm, and the release tools
+Requirements: Node.js 22.12 or newer with npm, and the release tools
 (`pip install -e ".[release]"`). Network access is needed for npm ci and for
 the build backend, unless they are already in local caches (`--offline` uses
 only npm's cache).
@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     npm = shutil.which("npm")
     if npm is None:
-        print("error: npm was not found; install Node.js 20 or newer", file=sys.stderr)
+        print("error: npm was not found; install Node.js 22.12 or newer", file=sys.stderr)
         return 2
     if not all(importlib.util.find_spec(name) for name in ("build", "twine")):
         print('error: install the release tools: pip install -e ".[release]"', file=sys.stderr)
