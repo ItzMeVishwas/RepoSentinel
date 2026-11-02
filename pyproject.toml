@@ -51,7 +51,7 @@ dev = [
 # Tools for building and checking release archives (scripts/build_release.py).
 release = [
     "build>=1.3",
-    # twine 7 understands the metadata version (2.5) that hatchling 1.32 writes.
+    # twine 7 understands the metadata version (2.5) that hatchling writes.
     "twine>=7.0",
 ]
 

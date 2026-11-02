@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { ApiFailure, messageOf, post, startSession } from './api';
 import { scanProject } from './actions';
 import { ErrorNote, HISTORY_LIMIT, markNavigation } from './common';
@@ -300,7 +300,7 @@ function TopBar(props: {
   page: string;
   onMenu: () => void;
   menuOpen: boolean;
-  menuButton: RefObject<HTMLButtonElement>;
+  menuButton: Ref<HTMLButtonElement>;
 }) {
   const app = useApp();
   const project = currentProject(app);
