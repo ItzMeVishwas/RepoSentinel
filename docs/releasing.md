@@ -16,7 +16,7 @@ edited by hand.
 
 ## Build
 
-Requirements: Python 3.12+, Node.js 20+ with npm, and the release tools.
+Requirements: Python 3.12+, Node.js 22.12+ with npm, and the release tools.
 
 ```bash
 python -m pip install -e ".[release]"      # build and twine

@@ -74,7 +74,7 @@ RepoSentinel **does not**:
 ## Installation
 
 RepoSentinel is not on PyPI yet. Install it from a source checkout. You need
-Python 3.12 or newer, and Node.js 20 or newer to build the web interface (the
+Python 3.12 or newer, and Node.js 22.12 or newer to build the web interface (the
 command line works without it).
 
 Windows (PowerShell):
@@ -597,7 +597,7 @@ and why OSV-Scanner and Zizmor are not integrated yet.
 .\.venv\Scripts\python.exe scripts\generate_rules_doc.py   # after changing a rule
 ```
 
-**Release builds** need Node.js 20+ and the release tools. The script builds
+**Release builds** need Node.js 22.12+ and the release tools. The script builds
 the web interface first, then the sdist and wheel (the sdist carries the
 built interface, so a wheel built from it does not need Node.js), then runs
 `twine check --strict` and `scripts/check_dist.py`:
