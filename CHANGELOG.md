@@ -56,8 +56,9 @@ the first release.
 ### Known limitations
 
 * Git history and dependencies are not scanned.
-* macOS, Firefox, Safari and screen readers are not verified; no external
-  user has validated the product.
+* On macOS only the automated Python tests run (in CI). Firefox, Safari and
+  screen readers are not verified, and no external user has validated the
+  product.
 
 ### Fixed after the first CI runs
 

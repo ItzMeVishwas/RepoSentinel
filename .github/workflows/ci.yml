@@ -41,7 +41,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The macOS jobs are new and not (yet) required checks for main.
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Check out the repository
@@ -92,10 +93,10 @@ jobs:
       - name: Run tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.ui.outcome == 'success' }}
         env:
-          # Linux can create symbolic links without extra privileges, so the
-          # symbolic-link tests must run there: with this set, failing to
-          # create a link fails the test instead of skipping it.
-          REPOSENTINEL_REQUIRE_SYMLINK_TESTS: ${{ runner.os == 'Linux' && '1' || '0' }}
+          # Linux and macOS can create symbolic links without extra privileges,
+          # so the symbolic-link tests must run there: with this set, failing
+          # to create a link fails the test instead of skipping it.
+          REPOSENTINEL_REQUIRE_SYMLINK_TESTS: ${{ runner.os != 'Windows' && '1' || '0' }}
         run: python -m pytest -ra
 
       - name: Check the generated rules reference
