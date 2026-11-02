@@ -408,7 +408,7 @@ what happens when a private repository is made public.
   ([detect-secrets](https://github.com/Yelp/detect-secrets)). Gitleaks supports
   a baseline report of ignored findings (`--baseline-path`, read from its
   [source](https://raw.githubusercontent.com/gitleaks/gitleaks/master/cmd/root.go)
-  in an earlier milestone). Zizmor audits workflows offline by default
+  code). Zizmor audits workflows offline by default
   ([zizmor usage](https://docs.zizmor.sh/usage/)).
 
 Not used: SonarQube issue lifecycle (the page read did not describe it), pricing,

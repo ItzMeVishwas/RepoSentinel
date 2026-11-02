@@ -191,6 +191,21 @@ async function newPage() {
   page.on('pageerror', (error) => consoleMessages.push(`pageerror: ${error.message}`));
   const cdp = await page.createCDPSession();
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+  // E2E_CPU_SLOWDOWN=4 runs the page 4 times slower, like a small CI runner, to
+  // reveal checks that only pass because a fast machine wins a race.
+  const slowdown = Number(process.env.E2E_CPU_SLOWDOWN ?? 1);
+  if (slowdown > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: slowdown });
+  // E2E_API_DELAY_MS=400 holds every API request that long, like a slow server,
+  // to reveal checks that read data before the page has received it.
+  const apiDelay = Number(process.env.E2E_API_DELAY_MS ?? 0);
+  if (apiDelay > 0) {
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      if (request.isInterceptResolutionHandled()) return;
+      if (request.url().includes('/api/')) setTimeout(() => request.continue(), apiDelay);
+      else request.continue();
+    });
+  }
   return page;
 }
 
@@ -241,10 +256,26 @@ async function waitOrExplain(page, selector) {
   }
 }
 
+// Waits for the page to stop announcing a loading state (role=status ".loading"),
+// i.e. for data requested from the server to arrive; then the page shows either
+// the data or an honest empty or error state.
+const settled = (page) =>
+  page.waitForFunction(() => !document.querySelector('main .loading[role=status]'));
 const heading = (page) => page.evaluate(() => document.querySelector('main h1')?.textContent ?? '');
+// What a click on the menu button would actually hit: null when it is the button
+// itself, otherwise a short description of the element covering it.
+const menuButtonCover = (page) =>
+  page.evaluate(() => {
+    const box = document.querySelector('.menu-button').getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit?.closest('.menu-button') ? null : (hit?.outerHTML.slice(0, 80) ?? 'nothing');
+  });
 async function goTo(page, label) {
   // On narrow screens the navigation is in a menu that opens from the top bar.
   if (await page.$eval('.menu-button', (el) => getComputedStyle(el).display !== 'none')) {
+    // A click on a covered button would silently hit something else.
+    const cover = await menuButtonCover(page);
+    if (cover) throw new Error(`goTo(${label}): the menu button is covered by ${cover}`);
     await page.click('.menu-button');
     // Wait until the menu has finished sliding in, as a person would.
     await page.waitForFunction(() => {
@@ -305,6 +336,7 @@ try {
 
   // First run: the Overview explains what to do; nothing has been written yet.
   check('first run opens the Overview', (await heading(page)) === 'Overview');
+  await settled(page); // the project list has loaded (and is empty)
   check('first run shows how to get started', (await visibleText(page)).includes('Register a project'));
   check('no local data is created before a project is registered', !existsSync(dataDir));
   await page.keyboard.press('Tab');
@@ -321,6 +353,7 @@ try {
     check(`"${label}" opens its page, marks it current and focuses its heading`, focused && current === label);
   }
   await goTo(page, 'Settings');
+  await settled(page);
   check('Settings shows where data would be kept', (await visibleText(page)).includes('Not created yet'));
   await axeCheck(page, 'settings (no data yet)');
 
@@ -457,6 +490,8 @@ try {
   const lower = text.toLowerCase();
   check('overview shows what needs attention and what changed', lower.includes('what needs attention') && lower.includes('since scan #1') && text.includes('Detected again'));
   check('overview shows coverage and next actions', text.includes('Coverage') && text.includes('Next actions') && text.includes('All 3 checks completed.'));
+  // The recent scans are loaded after the page opens: wait for that, then count.
+  await settled(page);
   check('overview lists recent saved scans', (await page.$$eval('section[aria-labelledby=recent] tbody tr', (rows) => rows.length)) === 2);
   const claims = text.replace('They are not a score, and they do not show that the repository is secure or ready to publish.', '');
   check('overview has the not-a-score statement', text.includes('They are not a score'));
@@ -540,6 +575,10 @@ try {
 
   // --- narrow screens and reduced motion ----------------------------------------------------
   await page.setViewport({ width: 375, height: 800 });
+  // Regression: crossing the breakpoint used to animate the desktop sidebar off
+  // the screen, covering the menu button for the duration of the slide.
+  const coverAfterResize = await menuButtonCover(page);
+  check('after resizing to a phone width the menu button is usable at once', coverAfterResize === null, coverAfterResize ?? 'not covered');
   await noOverflow(page, 'findings');
   await page.screenshot({ path: join(out, 'findings-phone.png'), fullPage: false });
   for (const label of ['Overview', 'Projects', 'Scan', 'History', 'Compare', 'Reports', 'Settings']) {

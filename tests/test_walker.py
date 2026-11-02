@@ -14,7 +14,7 @@ from reposentinel.context import ScanContext
 from reposentinel.models import CoverageReason
 from reposentinel.walker import ScanLimits, collect_files, decode_text
 from tests.conftest import RepoFactory
-from tests.helpers import write_files
+from tests.helpers import create_junction, write_files
 
 
 def paths(root: Path, limits: ScanLimits | None = None) -> list[str]:
@@ -98,11 +98,9 @@ def test_limits_must_be_positive() -> None:
 
 @pytest.mark.skipif(sys.platform != "win32", reason="junctions exist only on Windows")
 def test_junction_pointing_outside_root_is_not_followed(tmp_path: Path) -> None:
-    import _winapi  # CPython's own helper, used by its test suite to create junctions
-
     outside = write_files(tmp_path / "outside", {"secret.txt": "outside the repository"})
     root = write_files(tmp_path / "repo", {"inside.txt": "x"})
-    _winapi.CreateJunction(str(outside), str(root / "link"))
+    create_junction(outside, root / "link")
 
     assert paths(root) == ["inside.txt"]
     (issue,) = issues_by_reason(root, CoverageReason.SYMLINK)
@@ -225,9 +223,7 @@ def test_decode_text(data: bytes, expected: str | None) -> None:
 def make_directory_link(target: Path, link: Path) -> None:
     """A junction on Windows (no privilege needed), a symbolic link elsewhere."""
     if sys.platform == "win32":
-        import _winapi
-
-        _winapi.CreateJunction(str(target), str(link))
+        create_junction(target, link)
     else:
         _try_symlink(target, link, directory=True)
 

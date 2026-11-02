@@ -185,6 +185,7 @@ class Session:
 
 
 Operation = Callable[[Any], Any]
+HTTP_0_9 = "HTTP/0.9"  # http.server's placeholder before a request's version is known
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -264,6 +265,12 @@ class Handler(BaseHTTPRequestHandler):
         parts of the request)."""
         del message, explain  # never echo request text
         self.close_connection = True
+        if self.request_version == HTTP_0_9:
+            # The request was rejected before its version was read. Python 3.12's
+            # http.server then answers like HTTP/0.9, without a status line or any
+            # header (3.13 fixed this upstream); mark the version as unknown so the
+            # status line and the security headers are always sent.
+            self.request_version = ""
         extra = {"Connection": "close"}
         if code == HTTPStatus.NOT_IMPLEMENTED:  # the standard library's "unsupported method"
             code = HTTPStatus.METHOD_NOT_ALLOWED
@@ -274,6 +281,17 @@ class Handler(BaseHTTPRequestHandler):
             text = "error"
         body = json.dumps({"error": text}, ensure_ascii=True).encode("ascii")
         self._send(code, body, "application/json; charset=utf-8", extra)
+
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        if self.request_version == HTTP_0_9:
+            # A request without a version ("GET /"): an HTTP/0.9 response has no
+            # status line or headers, so it could not carry the security headers.
+            # Browsers always send HTTP/1.x.
+            self.send_error(HTTPStatus.HTTP_VERSION_NOT_SUPPORTED)
+            return False
+        return True
 
     # --- checks applied to every request -----------------------------------
 

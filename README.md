@@ -65,11 +65,11 @@ RepoSentinel **does not**:
 
 | | Status |
 |---|---|
-| Python | 3.12, 3.13 and 3.14 declared (`requires-python >= 3.12`). The test suite passes on 3.13 and 3.14 (Windows); 3.12 is covered by CI once it runs. |
-| Windows 11 | Tested locally (command line, web interface, packaging). |
-| Linux | Covered by the CI workflow (Ubuntu), which **has not run yet**. |
+| Python | 3.12, 3.13 and 3.14 (`requires-python >= 3.12`). The test suite runs on all three in CI, on Ubuntu and Windows, and also with the lowest supported dependency versions. |
+| Windows | CI (Windows Server runners) and local testing on Windows 11 (command line, web interface, packaging). |
+| Linux | The GitHub Actions workflow runs the Python test suite, package build and installation, SARIF validation, and a Chrome browser test on Ubuntu. |
 | macOS | Not tested. |
-| Browsers | Tested with Chrome 156 and Edge 156 through automated end-to-end tests. Firefox, Safari and screen readers are not tested. |
+| Browsers | Tested with Chrome and Edge through automated end-to-end tests. Firefox, Safari and screen readers are not tested. |
 
 ## Installation
 
@@ -640,7 +640,7 @@ pull request, once the repository is on GitHub:
 * **minimum-dependencies**: the tests against the lowest declared versions.
 
 The token can only read the repository, actions are pinned to full commit
-SHAs, and no secrets are used. **The workflow has not run on GitHub yet.**
+SHAs, and no secrets are used.
 
 Project layout:
 

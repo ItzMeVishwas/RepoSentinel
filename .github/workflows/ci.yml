@@ -50,11 +50,27 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      # Some tests start the real `reposentinel ui`, which serves the built web
+      # interface (and, correctly, refuses to start without it).
+      - name: Build the web interface
+        id: ui
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
       - name: Install RepoSentinel with development tools
+        id: install
         run: python -m pip install -e ".[dev]"
 
       - name: Lint
@@ -66,7 +82,10 @@ jobs:
       - name: Type check
         run: python -m mypy
 
+      # The remaining checks run even when lint or type checking failed (the job
+      # still fails), so one failing check cannot hide the others' results.
       - name: Run tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.ui.outcome == 'success' }}
         env:
           # Linux can create symbolic links without extra privileges, so the
           # symbolic-link tests must run there: with this set, failing to
@@ -75,9 +94,11 @@ jobs:
         run: python -m pytest -ra
 
       - name: Check the generated rules reference
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/generate_rules_doc.py --check
 
       - name: Scan this repository with RepoSentinel
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python -m reposentinel scan . --no-color
 
   frontend:
@@ -91,7 +112,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
 
@@ -118,12 +139,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
 
@@ -166,12 +187,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
 
@@ -207,7 +228,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -237,9 +258,24 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      # Some tests start the real `reposentinel ui`, which serves the built web
+      # interface (and, correctly, refuses to start without it).
+      - name: Build the web interface
+        id: ui
+        working-directory: frontend
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
 
       - name: Install the lowest supported versions
         # Keep these in sync with the lower bounds in pyproject.toml.

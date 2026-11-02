@@ -76,8 +76,10 @@ def journey(make_repo: RepoFactory, tmp_path: Path) -> tuple[Path, Path]:
 
 
 def test_help_lists_compare_and_its_options() -> None:
-    assert "compare" in plain(invoke("--help").stdout)
-    text = plain(invoke("compare", "--help").stdout)
+    # A fixed width: in very narrow terminals Rich shortens long option names.
+    wide = {"COLUMNS": "120"}
+    assert "compare" in plain(runner.invoke(cli.app, ["--help"], env=wide).stdout)
+    text = plain(runner.invoke(cli.app, ["compare", "--help"], env=wide).stdout)
     for option in ("--format", "--output", "--fail-on", "--different-roots", "--no-color"):
         assert option in text
 
@@ -158,13 +160,35 @@ def test_json_and_html_formats(journey: tuple[Path, Path], tmp_path: Path) -> No
     result = invoke("compare", before, after, "--format", "html", "--output", page)
     assert result.exit_code == 1
     assert result.stdout == ""  # written to the file only
-    assert "Wrote html comparison" in result.stderr and SCOPE_STATEMENT in result.stderr
+    # The terminal message is wrapped at the console width; compare it unwrapped.
+    assert "Wrote html comparison" in flat(result.stderr)
+    assert SCOPE_STATEMENT in flat(result.stderr)
     html = page.read_text(encoding="utf-8")
     assert "Content-Security-Policy" in html and "default-src 'none'" in html
     for section in SECTIONS:
         assert section in html
     assert "<script" not in html.lower() and "href=" not in html.lower()
     assert "http://" not in html and "https://" not in html
+
+
+@pytest.mark.parametrize("columns", ["40", "80", "200"])
+def test_written_message_keeps_the_whole_scope_at_any_width(
+    journey: tuple[Path, Path], tmp_path: Path, columns: str
+) -> None:
+    # Regression: the scope statement is wrapped with the rest of the message,
+    # so where the line breaks fall depends on the width and on the length of
+    # the output path; nothing of it may be lost or cut.
+    before, after = journey
+    page = tmp_path / "comparison.html"
+    result = runner.invoke(
+        cli.app,
+        ["compare", str(before), str(after), "--format", "html", "--output", str(page)],
+        env={"COLUMNS": columns},
+    )
+    assert result.exit_code == 1
+    message = flat(result.stderr)
+    assert SCOPE_STATEMENT in message
+    assert message.startswith("Wrote html comparison to")
 
 
 def test_fix_text_is_shown_once_per_rule(make_repo: RepoFactory, tmp_path: Path) -> None:
@@ -265,7 +289,7 @@ def test_oversized_report_gives_two(
     before, after = journey
     result = invoke("compare", before, after)
     assert result.exit_code == 2
-    assert "larger than" in result.stderr and result.stdout == ""
+    assert "larger than" in flat(result.stderr) and result.stdout == ""
 
 
 def test_different_roots(make_repo: RepoFactory, tmp_path: Path) -> None:

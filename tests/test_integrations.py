@@ -33,6 +33,7 @@ from reposentinel.models import CheckStatus, Outcome, ScanReport, Severity
 from reposentinel.reporting import render_json
 from tests import synthetic
 from tests.conftest import RepoFactory
+from tests.helpers import create_junction
 
 FAKE_EXE = Path("/opt/tools/gitleaks")
 
@@ -317,9 +318,7 @@ def test_find_executable_rejects_path_folder_inside_repository_even_if_linked(
     repo = tmp_path / "repo"
     repo.mkdir()
     if sys.platform == "win32":
-        import _winapi
-
-        _winapi.CreateJunction(str(outside_bin), str(repo / "tools"))
+        create_junction(outside_bin, repo / "tools")
     else:
         (repo / "tools").symlink_to(outside_bin, target_is_directory=True)
     monkeypatch.setenv("PATH", str(repo / "tools"))
