@@ -65,10 +65,10 @@ RepoSentinel **does not**:
 
 | | Status |
 |---|---|
-| Python | 3.12, 3.13 and 3.14 (`requires-python >= 3.12`). The test suite runs on all three in CI, on Ubuntu and Windows, and also with the lowest supported dependency versions. |
+| Python | 3.12, 3.13 and 3.14 (`requires-python >= 3.12`). The test suite runs on all three in CI, on Ubuntu, Windows and macOS, and also with the lowest supported dependency versions. |
 | Windows | CI (Windows Server runners) and local testing on Windows 11 (command line, web interface, packaging). |
 | Linux | The GitHub Actions workflow runs the Python test suite, package build and installation, SARIF validation, and a Chrome browser test on Ubuntu. |
-| macOS | Not tested. |
+| macOS | The GitHub Actions workflow runs the Python test suite on macOS. The web interface in a browser, packaging and everyday use have not been tested on macOS. |
 | Browsers | Tested with Chrome and Edge through automated end-to-end tests. Firefox, Safari and screen readers are not tested. |
 
 ## Installation
