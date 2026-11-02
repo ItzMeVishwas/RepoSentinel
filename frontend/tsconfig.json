@@ -12,7 +12,9 @@
     "noUncheckedIndexedAccess": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "noUncheckedSideEffectImports": true,
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }
