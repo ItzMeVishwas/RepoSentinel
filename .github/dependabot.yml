@@ -12,6 +12,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Packages that only install together (their peer dependencies require
+    # matching versions) are updated in one pull request.
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
   - package-ecosystem: pip
     directory: /
     schedule:
