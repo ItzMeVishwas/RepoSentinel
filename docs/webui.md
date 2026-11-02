@@ -220,7 +220,7 @@ Known limits:
 * Backend: `src/reposentinel/webui/server.py` (HTTP and security checks) and
   `api.py` (the operations, testable without HTTP). Python standard library
   only: no new runtime dependency.
-* Frontend: `frontend/` (React 18, TypeScript, Vite 6, pinned exactly). It
+* Frontend: `frontend/` (React 19, TypeScript, Vite 6, pinned exactly). It
   never computes findings, statuses or exit codes.
 * Tests: `tests/test_webui_server.py` (pytest, no Node.js needed) and
   `frontend/e2e/run.mjs` (`npm run e2e`): the built interface in a real Chrome
