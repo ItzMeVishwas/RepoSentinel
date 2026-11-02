@@ -21,6 +21,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Security",
 ]
 # Runtime dependencies, kept deliberately small:
@@ -54,6 +57,13 @@ release = [
     # twine 7 understands the metadata version (2.5) that hatchling writes.
     "twine>=7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ItzMeVishwas/RepoSentinel"
+Documentation = "https://github.com/ItzMeVishwas/RepoSentinel#readme"
+Issues = "https://github.com/ItzMeVishwas/RepoSentinel/issues"
+Changelog = "https://github.com/ItzMeVishwas/RepoSentinel/blob/main/CHANGELOG.md"
+Security = "https://github.com/ItzMeVishwas/RepoSentinel/security/policy"
 
 [project.scripts]
 reposentinel = "reposentinel.cli:main"
