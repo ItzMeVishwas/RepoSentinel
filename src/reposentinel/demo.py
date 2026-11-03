@@ -90,13 +90,54 @@ def build_files() -> dict[str, str]:
 
 
 def create_demo_repo(target: Path) -> list[Path]:
-    """Write the demo files under ``target`` (which must be new or empty)."""
+    """Write the demo files under ``target`` (which must be new or empty).
+
+    ``target`` may be a folder that someone else can also write to, who could
+    plant a link there while the demo is being written (for example a junction
+    or symbolic link named ``app`` that points to another folder). So every
+    folder below ``target`` is created here, and every file is created with
+    exclusive creation (``O_CREAT | O_EXCL``), which never opens an existing
+    file or link: if anything appears at one of these paths, the demo stops.
+    It therefore never overwrites or truncates an existing file. Still
+    possible: someone who can write to ``target`` replaces a folder created
+    here with a link in the moment before the next file in it is created; that
+    can only create a new demo file elsewhere.
+    """
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise FileExistsError(f"{target} already exists and is not an empty directory")
+    target.mkdir(parents=True, exist_ok=True)
+    created = {target}
     written = []
     for relative, content in build_files().items():
         path = target / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8", newline="\n")
+        _create_folders(path.parent, created)
+        try:
+            with path.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(content)
+        except FileExistsError:
+            raise FileExistsError(_appeared(path)) from None
         written.append(path)
     return written
+
+
+def _create_folders(folder: Path, created: set[Path]) -> None:
+    """Create ``folder`` and its missing parents below the demo root; each must be new."""
+    missing = []
+    while folder not in created:
+        if folder == folder.parent:
+            raise ValueError("demo paths must stay inside the demo folder")
+        missing.append(folder)
+        folder = folder.parent
+    for new in reversed(missing):
+        try:
+            new.mkdir()
+        except FileExistsError:
+            raise FileExistsError(_appeared(new)) from None
+        created.add(new)
+
+
+def _appeared(path: Path) -> str:
+    return (
+        f"{path} appeared while the demo was being written (another program or user may "
+        "have created it); stopped without writing to it"
+    )

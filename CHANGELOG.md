@@ -45,6 +45,11 @@ the first release.
 * Repository text is never copied into findings; secrets are redacted twice;
   file identity is re-checked to resist link swaps during a scan; hostile
   file names are neutralised in every output.
+* `reposentinel demo` creates every folder and file itself, with exclusive
+  file creation, and stops if a file, folder or link appears in the target
+  folder while the demo is being written. It never overwrites or truncates
+  an existing file (before, a link planted there by another user could
+  redirect its writes and overwrite a file elsewhere).
 
 ### Project
 
