@@ -92,17 +92,104 @@ gitleaks dir <absolute repository path>
   rule ID and the path. Comparing a scan made with `--integration gitleaks`
   against one made without it reports the check as not run.
 
-### Verifying the adapter (next step)
+### Verifying the adapter against a real Gitleaks (next step)
 
-1. Install Gitleaks from the official releases page, a trusted package
-   manager, or a source build, and confirm it with `gitleaks version`.
-2. Create the demo repository: `python scripts/create_demo_repo.py <dir>`.
-3. Run `gitleaks dir <dir> --report-format json --report-path out.json
-   --redact=100` directly, and inspect `out.json` (field names, `File` format,
-   line numbers).
-4. Run `reposentinel scan <dir> --integration gitleaks --format json` and
-   compare. Record the tested version here and add a regression test using
-   the observed report shape.
+Until every step below has been done on a real release, the integration
+stays **experimental**. Use only synthetic data: never point a first test at
+a real repository.
+
+**1. Get an official binary and check it.** Download the archive for your
+platform and the checksums file (`gitleaks_<version>_checksums.txt`) from
+the same release on <https://github.com/gitleaks/gitleaks/releases>, or use
+a package manager you already trust. Check the archive before extracting it:
+
+```powershell
+# Windows: compare with the line for this file in the checksums file
+Get-FileHash .\gitleaks_<version>_windows_x64.zip -Algorithm SHA256
+```
+
+```bash
+# Linux and macOS
+sha256sum --ignore-missing -c gitleaks_<version>_checksums.txt
+```
+
+Extract it into a new, empty folder **outside** any repository you will
+scan (RepoSentinel refuses a `gitleaks` inside the scanned folder) and add
+that folder to `PATH` for the current terminal only:
+
+```powershell
+$env:PATH = "C:\tools\gitleaks-<version>;" + $env:PATH
+```
+
+```bash
+export PATH="$HOME/tools/gitleaks-<version>:$PATH"
+```
+
+**2. Prepare two synthetic folders**, each outside any Git repository:
+
+```bash
+python -m reposentinel demo gl-demo          # fake credentials that trigger every rule
+mkdir gl-clean && echo "print('hello')" > gl-clean/app.py
+```
+
+For the `gitleaks:allow` test, save this as `make_allow.py` next to (not
+inside) `gl-demo` and run `python make_allow.py`. It writes a fake token,
+assembled at run time, followed by an allow comment:
+
+```python
+from pathlib import Path
+
+token = "ghp_" + "0123456789" * 3 + "abcdef"
+Path("gl-demo/allow.py").write_text(f'TOKEN = "{token}"  # gitleaks:allow\n')
+```
+
+**3. Run Gitleaks directly and record what it does.** Each row checks one of
+the open questions listed under "Known gaps". Run the commands from a
+temporary folder, not from inside `gl-demo`.
+
+| # | Command | What to record | What RepoSentinel assumes |
+|---|---|---|---|
+| a | `gitleaks version` | The exact output | A version number such as `8.28.0` or `v8.28.0` appears in it |
+| b | `gitleaks dir <abs>/gl-demo --report-format json --report-path demo.json --redact=100 --exit-code 42 --ignore-gitleaks-allow --no-banner` | Exit code; in `demo.json`: the field names, the `File` format (absolute or relative, `\` or `/`), `StartLine` for `app/settings.py`, and the `Secret` and `Match` values | Exit 42; `RuleID`, `Description`, `File`, `StartLine` exist; `StartLine` is 1-based (the `GITHUB_TOKEN` line of `app/settings.py` is line 3); `Secret` and `Match` are redacted |
+| c | The same command without `--ignore-gitleaks-allow` | Whether `allow.py` disappears from the report | It disappears without the flag and is reported with it (if `allow.py` is not reported even in row b, this row proves nothing: retry with a value that row b did report) |
+| d | `gitleaks dir <abs>/gl-clean --report-format json --report-path clean.json --exit-code 42 --no-banner` | Exit code and the exact content of `clean.json` | Exit 0; the report is `[]` or `null` |
+| e | `gitleaks dir <abs>/gl-clean --no-such-option` | Exit code | 126 (unknown option) |
+| f | `gitleaks dir <abs>/does-not-exist --report-format json --report-path missing.json --exit-code 42` | Exit code | 1 (error), not 42 |
+
+**4. Run RepoSentinel with the integration** on the same folders:
+
+```bash
+python -m reposentinel scan gl-demo --integration gitleaks --format json -o rs-demo.json
+python -m reposentinel scan gl-clean --integration gitleaks --format json -o rs-clean.json
+```
+
+Check that:
+
+* the `gitleaks` check is *completed* (not failed or skipped), and its
+  message names the version from step 3a;
+* its findings are `gitleaks:<RuleID>` with paths relative to the scanned
+  folder (`app/settings.py`, never absolute, never with `\`) and the same
+  line numbers as in `demo.json`;
+* none of the fake values appears anywhere in `rs-demo.json` (search it for
+  `ghp_`, `AKIA` and `not-a-real-pass`);
+* `rs-clean.json` reports a clean scan with the check completed.
+
+Also check the failure path: with `gitleaks` removed from `PATH` again, the
+check must be *skipped* with installation guidance. (Checking the
+"too old" message needs a second download of a release before 8.19.0; it
+is optional, because the version check is covered by the simulated tests.)
+
+**5. Repeat on each platform.** The `File` format matters most on Windows,
+so steps 3b and 4 should be done on Windows and on Linux or macOS.
+
+**6. Record the result.** Note the Gitleaks version, the operating systems,
+and every observed output in this section. Add a regression test to
+`tests/test_integrations.py` that uses the observed report shape (with
+synthetic, redacted values) and the observed exit codes. Only then change
+the status in the table at the top of this page and in the README from
+"experimental" to the verified version. If any observation differs from
+the assumptions above, fix the adapter first and treat the difference as a
+bug, not as a documentation change.
 
 ## Zizmor
 
