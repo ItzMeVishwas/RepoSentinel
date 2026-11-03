@@ -39,4 +39,4 @@ responses are best effort.
   normal issue, with synthetic examples.
 * **Problems in other tools.** Report vulnerabilities in Gitleaks or other
   third-party tools to those projects. RepoSentinel's Gitleaks integration
-  is experimental (see `docs/integrations.md`).
+  and its known gaps are described in `docs/integrations.md`.

@@ -82,7 +82,7 @@ so instead of showing examples.
   confirmed. A folder that no longer exists is flagged, and its history is kept.
 * **Scan.** Scan a registered project (saved and compared with its previous
   scan) or make a one-off scan of any folder (not saved). The scan uses the
-  native checks only (the experimental Gitleaks integration is not available
+  native checks only (the Gitleaks integration is not available
   here). While it runs, the buttons are disabled and an animated indicator is
   shown; there is no percentage, because RepoSentinel cannot measure progress
   accurately. The result states the outcome in words with its scope ("current

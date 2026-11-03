@@ -129,8 +129,8 @@ export function SettingsPage() {
           <dd>Up to {formatBytes(app.session.limits.max_upload_report_bytes)} per JSON report</dd>
           <dt>Checks</dt>
           <dd>
-            The native checks only ({app.session.rules.length} rules). The experimental Gitleaks
-            integration is available from the command line, not here.
+            The native checks only ({app.session.rules.length} rules). The Gitleaks integration
+            is available from the command line, not here.
           </dd>
         </dl>
         <p className="hint">

@@ -11,8 +11,9 @@
 #   release; update both together (Dependabot can do this).
 # * No secrets are used. Nothing is uploaded, cached or published (no npm
 #   or pip caches either: dependencies come from the lockfile and pins).
-#   The only download besides dependencies is the official SARIF schema,
-#   checked against a pinned SHA-256 (job "sarif").
+#   The only downloads besides dependencies are the official SARIF schema
+#   (job "sarif") and one Gitleaks release (job "gitleaks"), each checked
+#   against a pinned SHA-256.
 # * npm runs with --ignore-scripts, so no dependency's install script runs.
 
 name: CI
@@ -294,6 +295,40 @@ jobs:
 
       - name: Validate SARIF from the command line for synthetic repositories
         run: python scripts/validate_sarif.py --schema "$RUNNER_TEMP/sarif-schema-2.1.0.json"
+
+  gitleaks:
+    # Not a required check. Runs the Gitleaks integration against a real
+    # Gitleaks release: scripts/fetch_gitleaks.py downloads one pinned release
+    # from the official release page and refuses it unless its SHA-256 matches.
+    name: Gitleaks integration (real Gitleaks, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install RepoSentinel with development tools
+        run: python -m pip install -e ".[dev]"
+
+      - name: Download Gitleaks and check its SHA-256
+        run: python scripts/fetch_gitleaks.py "${{ runner.temp }}/gitleaks"
+
+      - name: Run the real-Gitleaks tests
+        env:
+          REPOSENTINEL_GITLEAKS_DIR: ${{ runner.temp }}/gitleaks
+          REPOSENTINEL_REQUIRE_GITLEAKS_TESTS: "1"
+        run: python -m pytest -ra tests/test_gitleaks_real.py
 
   minimum-dependencies:
     name: Lowest supported dependency versions (Linux, Python 3.12)

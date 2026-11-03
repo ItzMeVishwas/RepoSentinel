@@ -22,8 +22,9 @@ the first release.
 * `reposentinel demo FOLDER`: creates a synthetic repository with fake
   credentials that triggers every rule.
 * `reposentinel rules`: the rule catalogue.
-* Experimental Gitleaks integration (`--integration gitleaks`), not yet
-  verified against a real Gitleaks binary.
+* Optional Gitleaks integration (`--integration gitleaks`), tested with
+  official, checksum-verified Gitleaks 8.30.1 releases on Windows, Linux and
+  macOS (`tests/test_gitleaks_real.py`, run in CI).
 
 ### Local web interface
 
@@ -45,6 +46,17 @@ the first release.
 * Repository text is never copied into findings; secrets are redacted twice;
   file identity is re-checked to resist link swaps during a scan; hostile
   file names are neutralised in every output.
+* The GitHub Actions check no longer analyses a workflow whose YAML aliases
+  repeat its parts far more often than ordinary reuse (or form a cycle); it is
+  reported as not analysed instead. Before, a small file with nested aliases
+  could keep a scan busy for minutes and use hundreds of megabytes.
+* `reposentinel demo` creates every folder and file itself with exclusive
+  file creation, so it never overwrites or truncates an existing file, even
+  if another user plants a file or link in the target folder while it runs
+  (before, a planted link could redirect its writes and overwrite a file
+  elsewhere). Remaining limitation: a link that replaces a folder the demo
+  has just created can still redirect the creation of new demo files and
+  folders into another folder, and the demo does not detect this.
 
 ### Project
 
