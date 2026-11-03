@@ -18,16 +18,18 @@ INDEX = (
     '<link rel="stylesheet" href="./assets/app.css">'
 )
 METADATA = (
-    "Metadata-Version: 2.4\nName: reposentinel\nVersion: 0.1.0\n"
+    "Metadata-Version: 2.4\nName: reposentinel-scanner\nVersion: 0.1.0\n"
     "Requires-Python: >=3.12\nLicense-Expression: MIT\n"
 )
 
 
 def wheel_files() -> dict[str, str]:
     files = {name: "" for name in check_dist.REQUIRED_IN_WHEEL}
-    files["reposentinel-0.1.0.dist-info/METADATA"] = METADATA
-    files["reposentinel-0.1.0.dist-info/entry_points.txt"] = "[console_scripts]\n"
-    files["reposentinel-0.1.0.dist-info/licenses/LICENSE"] = "MIT License\n"
+    files["reposentinel_scanner-0.1.0.dist-info/METADATA"] = METADATA
+    files["reposentinel_scanner-0.1.0.dist-info/entry_points.txt"] = (
+        "[console_scripts]\nreposentinel = reposentinel.cli:main\n"
+    )
+    files["reposentinel_scanner-0.1.0.dist-info/licenses/LICENSE"] = "MIT License\n"
     files["reposentinel/webui/static/index.html"] = INDEX
     files["reposentinel/webui/static/assets/app.js"] = "1"
     files["reposentinel/webui/static/assets/app.css"] = "a{}"
@@ -36,6 +38,7 @@ def wheel_files() -> dict[str, str]:
 
 def sdist_files() -> dict[str, str]:
     files = {name: "" for name in check_dist.REQUIRED_IN_SDIST}
+    files["PKG-INFO"] = METADATA
     files["src/reposentinel/webui/static/index.html"] = INDEX
     files["src/reposentinel/webui/static/assets/app.js"] = "1"
     files["src/reposentinel/webui/static/assets/app.css"] = "a{}"
@@ -53,15 +56,15 @@ def make_sdist(path: Path, files: dict[str, str]) -> Path:
     with tarfile.open(path, "w:gz") as archive:
         for name, content in files.items():
             data = content.encode()
-            info = tarfile.TarInfo(f"reposentinel-0.1.0/{name}")
+            info = tarfile.TarInfo(f"reposentinel_scanner-0.1.0/{name}")
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
     return path
 
 
 def test_valid_archives_pass(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    make_wheel(tmp_path / "reposentinel-0.1.0-py3-none-any.whl", wheel_files())
-    make_sdist(tmp_path / "reposentinel-0.1.0.tar.gz", sdist_files())
+    make_wheel(tmp_path / "reposentinel_scanner-0.1.0-py3-none-any.whl", wheel_files())
+    make_sdist(tmp_path / "reposentinel_scanner-0.1.0.tar.gz", sdist_files())
     assert check_dist.main([str(tmp_path)]) == 0
     assert "OK" in capsys.readouterr().out
 
@@ -97,17 +100,33 @@ def test_valid_archives_pass(tmp_path: Path, capsys: pytest.CaptureFixture[str])
         (lambda f: f.update({"reposentinel/.env": "A=1"}), "contains"),
         (lambda f: f.update({"reposentinel/__pycache__/x.pyc": ""}), "contains"),
         (lambda f: f.update({"reposentinel/a.tsbuildinfo": ""}), "contains"),
-        (lambda f: f.pop("reposentinel-0.1.0.dist-info/entry_points.txt"), "entry_points"),
-        (lambda f: f.pop("reposentinel-0.1.0.dist-info/licenses/LICENSE"), "LICENSE file"),
+        (lambda f: f.pop("reposentinel_scanner-0.1.0.dist-info/entry_points.txt"), "entry_points"),
+        (lambda f: f.pop("reposentinel_scanner-0.1.0.dist-info/licenses/LICENSE"), "LICENSE file"),
         (
             lambda f: f.update(
                 {
-                    "reposentinel-0.1.0.dist-info/METADATA": METADATA.replace(
+                    "reposentinel_scanner-0.1.0.dist-info/METADATA": METADATA.replace(
                         "License-Expression: MIT", "License-Expression: GPL-3.0-only"
                     )
                 }
             ),
             "License-Expression",
+        ),
+        (
+            lambda f: f.update(
+                {
+                    "reposentinel_scanner-0.1.0.dist-info/METADATA": METADATA.replace(
+                        "Name: reposentinel-scanner", "Name: reposentinel"
+                    )
+                }
+            ),
+            "unexpected package name 'reposentinel'",
+        ),
+        (
+            lambda f: f.update(
+                {"reposentinel_scanner-0.1.0.dist-info/entry_points.txt": "[console_scripts]\n"}
+            ),
+            "does not define the reposentinel command",
         ),
     ],
 )
@@ -127,6 +146,11 @@ def test_broken_wheels_fail(tmp_path: Path, change: object, problem: str) -> Non
         (lambda f: f.update({"frontend/node_modules/vite/index.js": ""}), "contains"),
         (lambda f: f.update({"frontend/.claude-flow/x.json": ""}), "contains"),
         (lambda f: f.update({"tests/reposentinel-report.json": "{}"}), "contains"),
+        (
+            lambda f: f.update({"PKG-INFO": METADATA.replace("reposentinel-scanner", "x")}),
+            "unexpected sdist package name 'x'",
+        ),
+        (lambda f: f.pop("PKG-INFO"), "sdist has no PKG-INFO"),
     ],
 )
 def test_broken_sdists_fail(tmp_path: Path, change: object, problem: str) -> None:
@@ -141,11 +165,17 @@ def test_no_ui_option_allows_a_build_without_the_interface(tmp_path: Path) -> No
     for files in (wheel, sdist):
         for name in [n for n in files if "webui/static" in n]:
             files.pop(name)
-    make_wheel(tmp_path / "reposentinel-0.1.0-py3-none-any.whl", wheel)
-    make_sdist(tmp_path / "reposentinel-0.1.0.tar.gz", sdist)
+    make_wheel(tmp_path / "reposentinel_scanner-0.1.0-py3-none-any.whl", wheel)
+    make_sdist(tmp_path / "reposentinel_scanner-0.1.0.tar.gz", sdist)
     assert check_dist.main([str(tmp_path)]) == 1
     assert check_dist.main([str(tmp_path), "--no-ui"]) == 0
 
 
 def test_requires_exactly_one_of_each(tmp_path: Path) -> None:
+    assert check_dist.main([str(tmp_path)]) == 1
+
+
+def test_archives_with_the_old_distribution_name_are_not_found(tmp_path: Path) -> None:
+    make_wheel(tmp_path / "reposentinel-0.1.0-py3-none-any.whl", wheel_files())
+    make_sdist(tmp_path / "reposentinel-0.1.0.tar.gz", sdist_files())
     assert check_dist.main([str(tmp_path)]) == 1

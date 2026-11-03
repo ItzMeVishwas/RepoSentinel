@@ -61,6 +61,10 @@ the first release.
 ### Project
 
 * Released under the MIT License.
+* The Python distribution is named `reposentinel-scanner`
+  (`pip install reposentinel-scanner`), because PyPI refuses `reposentinel` as
+  too similar to an existing project. The command and the import package are
+  still `reposentinel`.
 * The local server answers malformed requests and unsupported HTTP methods
   with the same security headers as every other response (405 with an
   `Allow` header for unsupported methods), never echoing request text.

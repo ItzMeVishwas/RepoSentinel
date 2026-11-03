@@ -26,6 +26,12 @@ from pathlib import Path
 
 UI_DIR = "reposentinel/webui/static"
 
+# The distribution is "reposentinel-scanner"; archive and .dist-info names use
+# its normalised form. The import package and the command stay "reposentinel".
+DIST_NAME = "reposentinel-scanner"
+ARCHIVE_PREFIX = "reposentinel_scanner"
+COMMAND = "reposentinel = reposentinel.cli:main"
+
 REQUIRED_IN_WHEEL = (
     "reposentinel/__init__.py",
     "reposentinel/__main__.py",
@@ -108,10 +114,12 @@ def check_wheel(path: Path, *, ui: bool = True) -> list[str]:
         metadata = email.message_from_bytes(wheel.read(metadata_names[0]))
         index = f"{UI_DIR}/index.html"
         index_html = wheel.read(index).decode("utf-8") if index in names else None
+        entry_points = [n for n in names if n.endswith(".dist-info/entry_points.txt")]
+        entry_text = wheel.read(entry_points[0]).decode("utf-8") if entry_points else None
     problems += [f"wheel is missing {name}" for name in REQUIRED_IN_WHEEL if name not in names]
     problems += [f"wheel contains {name}" for name in _forbidden(names)]
-    if metadata["Name"] != "reposentinel":
-        problems.append(f"unexpected package name {metadata['Name']!r}")
+    if metadata["Name"] != DIST_NAME:
+        problems.append(f"unexpected package name {metadata['Name']!r}, expected {DIST_NAME!r}")
     if not metadata["Requires-Python"]:
         problems.append("wheel metadata has no Requires-Python")
     if metadata["License-Expression"] != LICENSE_EXPRESSION:
@@ -121,8 +129,10 @@ def check_wheel(path: Path, *, ui: bool = True) -> list[str]:
         )
     if not [n for n in names if n.endswith(".dist-info/licenses/LICENSE")]:
         problems.append("wheel does not contain the LICENSE file (.dist-info/licenses/LICENSE)")
-    if not [n for n in names if n.endswith(".dist-info/entry_points.txt")]:
+    if entry_text is None:
         problems.append("wheel has no entry_points.txt (the reposentinel command)")
+    elif COMMAND not in entry_text:
+        problems.append(f"wheel does not define the reposentinel command ({COMMAND})")
     if ui:
         problems += [f"wheel: {p}" for p in check_ui(names, index_html, UI_DIR)]
     return problems
@@ -131,8 +141,18 @@ def check_wheel(path: Path, *, ui: bool = True) -> list[str]:
 def check_sdist(path: Path, *, ui: bool = True) -> list[str]:
     with tarfile.open(path) as sdist:
         members = {m.name: m for m in sdist.getmembers() if m.isfile()}
-        # Strip the leading "reposentinel-<version>/" directory.
+        # Strip the leading "reposentinel_scanner-<version>/" directory.
         names = [name.split("/", 1)[1] for name in members if "/" in name]
+        pkg_info_member = next(
+            (
+                m
+                for name, m in members.items()
+                if name.count("/") == 1 and name.endswith("/PKG-INFO")
+            ),
+            None,
+        )
+        pkg_info_file = sdist.extractfile(pkg_info_member) if pkg_info_member is not None else None
+        pkg_info = email.message_from_bytes(pkg_info_file.read()) if pkg_info_file else None
         index_member = next(
             (m for name, m in members.items() if name.endswith(f"/src/{UI_DIR}/index.html")), None
         )
@@ -140,6 +160,12 @@ def check_sdist(path: Path, *, ui: bool = True) -> list[str]:
         index_html = index_file.read().decode("utf-8") if index_file is not None else None
     problems = [f"sdist is missing {name}" for name in REQUIRED_IN_SDIST if name not in names]
     problems += [f"sdist contains {name}" for name in _forbidden(names)]
+    if pkg_info is None:
+        problems.append("sdist has no PKG-INFO")
+    elif pkg_info["Name"] != DIST_NAME:
+        problems.append(
+            f"unexpected sdist package name {pkg_info['Name']!r}, expected {DIST_NAME!r}"
+        )
     if ui:
         problems += [f"sdist: {p}" for p in check_ui(names, index_html, f"src/{UI_DIR}")]
     return problems
@@ -152,10 +178,13 @@ def main(argv: list[str] | None = None) -> int:
         "--no-ui", action="store_true", help="do not require the web interface build"
     )
     args = parser.parse_args(argv)
-    wheels = sorted(args.dist.glob("reposentinel-*.whl"))
-    sdists = sorted(args.dist.glob("reposentinel-*.tar.gz"))
+    wheels = sorted(args.dist.glob(f"{ARCHIVE_PREFIX}-*.whl"))
+    sdists = sorted(args.dist.glob(f"{ARCHIVE_PREFIX}-*.tar.gz"))
     if len(wheels) != 1 or len(sdists) != 1:
-        print(f"expected one wheel and one sdist in {args.dist}", file=sys.stderr)
+        print(
+            f"expected one wheel and one sdist named {ARCHIVE_PREFIX}-* in {args.dist}",
+            file=sys.stderr,
+        )
         return 1
     ui = not args.no_ui
     problems = check_wheel(wheels[0], ui=ui) + check_sdist(sdists[0], ui=ui)

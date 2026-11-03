@@ -79,6 +79,19 @@ def smoke_cli(work: Path) -> None:
         check=True,
     ).stdout.strip()
     check("site-packages" in located, f"imported from the installed package ({located})")
+    distribution = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import importlib.metadata as m, reposentinel; "
+            "print(m.version('reposentinel-scanner') == reposentinel.__version__)",
+        ],
+        cwd=work,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    check(distribution == "True", "installed as the reposentinel-scanner distribution")
     check(cli("--version", cwd=work).stdout.startswith("reposentinel "), "--version")
     help_text = cli("--help", cwd=work).stdout
     check(

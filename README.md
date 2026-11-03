@@ -67,15 +67,20 @@ RepoSentinel **does not**:
 |---|---|
 | Python | 3.12, 3.13 and 3.14 (`requires-python >= 3.12`). The test suite runs on all three in CI, on Ubuntu, Windows and macOS, and also with the lowest supported dependency versions. |
 | Windows | CI (Windows Server runners) and local testing on Windows 11 (command line, web interface, packaging). |
-| Linux | The GitHub Actions workflow runs the Python test suite, package build and installation, SARIF validation, and a Chrome browser test on Ubuntu. |
-| macOS | The GitHub Actions workflow runs the Python test suite on macOS. The web interface in a browser, packaging and everyday use have not been tested on macOS. |
-| Browsers | Tested with Chrome and Edge through automated end-to-end tests. Firefox, Safari and screen readers are not tested. |
+| Linux | The GitHub Actions workflow runs the Python test suite, package build and installation, SARIF validation, the real-Gitleaks tests, and Chrome and Firefox browser tests on Ubuntu. |
+| macOS | The GitHub Actions workflow runs the Python test suite and the real-Gitleaks tests on macOS. The web interface in a browser, packaging and everyday use have not been tested on macOS. |
+| Browsers | Tested with Chrome, Edge and Firefox through automated end-to-end tests (in Firefox one check that needs Chrome's DevTools protocol is skipped). Safari and screen readers are not tested. |
 
 ## Installation
 
-RepoSentinel is not on PyPI yet. Install it from a source checkout. You need
-Python 3.12 or newer, and Node.js 22.12 or newer to build the web interface (the
-command line works without it).
+RepoSentinel is not on PyPI yet. Once it is published, it will install with
+`python -m pip install reposentinel-scanner`: the package on PyPI is called
+`reposentinel-scanner` (the shorter name was not available), while the
+command and the Python package stay `reposentinel`.
+
+Until then, install it from a source checkout. You need Python 3.12 or newer,
+and Node.js 22.12 or newer to build the web interface (the command line works
+without it).
 
 Windows (PowerShell):
 
