@@ -226,7 +226,10 @@ Known limits:
   `frontend/e2e/run.mjs` (`npm run e2e`): the built interface in a real Chrome
   or Edge, driven by puppeteer-core against the real server, compared with
   the CLI's output, plus axe-core accessibility checks. It uses an installed
-  browser and downloads nothing.
+  browser and downloads nothing. `E2E_BROWSER=firefox` runs it in Firefox
+  (CI job "real Firefox", not required); the reduced-motion check is then
+  skipped, because it needs Chrome's DevTools protocol. Safari is not tested
+  automatically.
 * The build in `src/reposentinel/webui/static/` is generated and git-ignored.
   `scripts/build_release.py` builds it before the Python archives; the sdist
   and the wheel both include it, and `scripts/check_dist.py` refuses archives

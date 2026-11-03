@@ -5,8 +5,9 @@
 // Starts the real `python -m reposentinel ui --no-browser` (with a temporary
 // REPOSENTINEL_DATA_DIR), drives it with
 // puppeteer-core using an installed Chrome or Edge (override with CHROME_PATH;
-// nothing is downloaded), and compares what the page shows and downloads with
-// the command line's own output for the same synthetic repositories. Every
+// nothing is downloaded), or Firefox with E2E_BROWSER=firefox (override with
+// FIREFOX_PATH; driven over WebDriver BiDi), and compares what the page shows
+// and downloads with the command line's own output for the same synthetic repositories. Every
 // browser request is recorded and must stay on this computer.
 //
 // Writes screenshots and results.json to E2E_OUT (default: a new temp folder).
@@ -26,18 +27,32 @@ const project = join(here, '..', '..');
 const python =
   process.env.PYTHON ??
   [join(project, '.venv', 'Scripts', 'python.exe'), join(project, '.venv', 'bin', 'python')].find(existsSync);
-const browserPaths = [
-  process.env.CHROME_PATH,
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-]
+// Firefox is driven without Chrome's DevTools protocol: the few checks that
+// need it (emulated media features) are reported as skipped, never as passed,
+// and E2E_CPU_SLOWDOWN is refused.
+const firefox = process.env.E2E_BROWSER === 'firefox';
+const browserPaths = (
+  firefox
+    ? [
+        process.env.FIREFOX_PATH,
+        'C:/Program Files/Mozilla Firefox/firefox.exe',
+        '/usr/bin/firefox',
+        '/Applications/Firefox.app/Contents/MacOS/firefox',
+      ]
+    : [
+        process.env.CHROME_PATH,
+        'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+        'C:/Program Files/Google/Chrome/Application/chrome.exe',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+      ]
+)
   .filter(Boolean)
   .filter((path) => existsSync(path));
 let browserPath = browserPaths[0];
 if (!python || !browserPath) {
-  console.error(`Missing ${python ? 'a Chrome or Edge browser (set CHROME_PATH)' : 'Python (set PYTHON)'}.`);
+  const wanted = firefox ? 'Firefox (set FIREFOX_PATH)' : 'a Chrome or Edge browser (set CHROME_PATH)';
+  console.error(`Missing ${python ? wanted : 'Python (set PYTHON)'}.`);
   process.exit(2);
 }
 
@@ -52,6 +67,11 @@ const results = [];
 function check(name, ok, detail = '') {
   results.push({ name, ok: Boolean(ok), detail: String(detail) });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` - ${detail}` : ''}`);
+}
+// A check this browser cannot perform: listed as skipped, neither passed nor failed.
+function skip(name, reason) {
+  results.push({ name, ok: true, skipped: true, detail: reason });
+  console.log(`SKIP  ${name} - ${reason}`);
 }
 
 // --- synthetic repositories (all values assembled at run time) -----------------
@@ -154,21 +174,50 @@ async function launchBrowser() {
   spy.close();
   throw new Error(`no browser could start: ${problems.join('; ')}`);
 }
-const launchOptions = {
-  headless: true,
+const launchOptions = firefox
+  ? {
+      browser: 'firefox',
+      headless: true,
+      extraPrefsFirefox: {
+        // Downloads go to the test's own folder, never the user's Downloads.
+        // (puppeteer's downloadBehavior option reaches only new browser
+        // contexts over WebDriver BiDi, not the default one used here.)
+        'browser.download.dir': downloads,
+        'browser.download.folderList': 2,
+        'browser.download.useDownloadDir': true,
+        // Like Chrome's host-resolver rules below: only this computer is
+        // reachable. Everything else goes to a proxy port nothing listens on
+        // (Firefox never sends 127.0.0.1 to a proxy), and no background
+        // service connects out.
+        'network.proxy.type': 1,
+        'network.proxy.http': '127.0.0.1',
+        'network.proxy.http_port': 1,
+        'network.proxy.ssl': '127.0.0.1',
+        'network.proxy.ssl_port': 1,
+        'network.proxy.no_proxies_on': '127.0.0.1',
+        'network.proxy.allow_hijacking_localhost': false,
+        'browser.safebrowsing.malware.enabled': false,
+        'browser.safebrowsing.phishing.enabled': false,
+        'app.update.enabled': false,
+        'datareporting.policy.dataSubmissionEnabled': false,
+        'browser.download.always_ask_before_handling_new_types': false,
+      },
+    }
+  : {
+      headless: true,
 
-  args: [
-    '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', // only this computer resolves
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-background-networking',
-    '--disable-component-update',
-    '--disable-sync',
-    '--disable-extensions',
-    // Hosted Linux CI runners may not allow Chrome's sandbox; opt in explicitly there.
-    ...(process.env.E2E_CHROME_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
-  ],
-};
+      args: [
+        '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', // only this computer resolves
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-background-networking',
+        '--disable-component-update',
+        '--disable-sync',
+        '--disable-extensions',
+        // Hosted Linux CI runners may not allow Chrome's sandbox; opt in explicitly there.
+        ...(process.env.E2E_CHROME_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
+      ],
+    };
 const browser = await launchBrowser();
 console.log(`browser: ${browserPath}`);
 
@@ -188,13 +237,24 @@ async function newPage() {
   });
   page.on('requestfailed', (request) => failures.push(`${request.url()} (${request.failure()?.errorText})`));
   page.on('console', (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
-  page.on('pageerror', (error) => consoleMessages.push(`pageerror: ${error.message}`));
-  const cdp = await page.createCDPSession();
-  await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+  page.on('pageerror', (error) => {
+    // Firefox reports requests that the CSP or CORS blocked (as the security
+    // checks below intend) as page errors; Chrome does not. Record them as
+    // console errors: still searched for leaked values, not counted as uncaught.
+    const blocked = firefox && /^(Content-Security-Policy|Cross-Origin Request Blocked): /.test(error.message);
+    consoleMessages.push(`${blocked ? 'error' : 'pageerror'}: ${error.message}`);
+  });
   // E2E_CPU_SLOWDOWN=4 runs the page 4 times slower, like a small CI runner, to
   // reveal checks that only pass because a fast machine wins a race.
   const slowdown = Number(process.env.E2E_CPU_SLOWDOWN ?? 1);
-  if (slowdown > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: slowdown });
+  if (!firefox) {
+    // Firefox gets its download folder from its preferences (launchOptions).
+    const cdp = await page.createCDPSession();
+    await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+    if (slowdown > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: slowdown });
+  } else if (slowdown > 1) {
+    throw new Error('E2E_CPU_SLOWDOWN needs Chrome or Edge');
+  }
   // E2E_API_DELAY_MS=400 holds every API request that long, like a slow server,
   // to reveal checks that read data before the page has received it.
   const apiDelay = Number(process.env.E2E_API_DELAY_MS ?? 0);
@@ -225,7 +285,8 @@ async function axeCheck(page, label) {
 async function waitForDownload(name) {
   const path = join(downloads, name);
   for (let i = 0; i < 100; i += 1) {
-    if (existsSync(path) && !readdirSync(downloads).some((f) => f.endsWith('.crdownload'))) return path;
+    // Chrome writes .crdownload and Firefox .part files until a download is complete.
+    if (existsSync(path) && !readdirSync(downloads).some((f) => /\.(crdownload|part)$/.test(f))) return path;
     await new Promise((r) => setTimeout(r, 100));
   }
   return null;
@@ -606,10 +667,14 @@ try {
   await page.click('xpath/.//label[contains(.,"Reduce motion")]/input');
   check('the reduce-motion preference applies to the page', await page.evaluate(() => document.documentElement.dataset.motion === 'reduce'));
   await page.click('xpath/.//label[contains(.,"Reduce motion")]/input');
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  const motion = await page.evaluate(() => getComputedStyle(document.querySelector('nav button')).transitionDuration);
-  check('reduced motion turns transitions off', motion === '0s', motion);
-  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  if (firefox) {
+    skip('reduced motion turns transitions off', 'media-feature emulation needs Chrome or Edge');
+  } else {
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    const motion = await page.evaluate(() => getComputedStyle(document.querySelector('nav button')).transitionDuration);
+    check('reduced motion turns transitions off', motion === '0s', motion);
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  }
 
   // --- deletion: one scan, a project's history, a project, all data ------------------------
   await goTo(page, 'History');
@@ -811,7 +876,10 @@ try {
 
 writeFileSync(join(out, 'results.json'), JSON.stringify({ browser: browserPath, results }, null, 2));
 const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed} passed, ${failed} failed. Screenshots and results: ${out}`);
+const skipped = results.filter((r) => r.skipped).length;
+console.log(
+  `\n${results.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped. Screenshots and results: ${out}`,
+);
 try {
   rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 } catch (error) {
