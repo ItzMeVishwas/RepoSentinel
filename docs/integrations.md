@@ -5,20 +5,20 @@ much broader coverage, so the goal is to run them *optionally* and normalise
 their results into the same report. This page records what was evaluated
 (October 2026), what was built, and what is still unverified.
 
-> **The Gitleaks integration is experimental.** Its flags and behaviour were
-> checked against Gitleaks' source code and tested with a simulated Gitleaks,
-> but it has **not been run against a real Gitleaks binary**. Until that test
-> is done and recorded below, do not rely on `--integration gitleaks` for
-> security decisions. RepoSentinel's native rules do not depend on it.
+> **The Gitleaks integration is optional and tested with Gitleaks 8.30.1**
+> on Windows, Linux and macOS, against official, checksum-verified releases
+> (see "Verification record" below; the CI job `gitleaks` repeats the checks
+> on every change). Other releases from 8.19.0 on are accepted but untested.
+> Read "Known gaps" before relying on its results, in particular the
+> `.gitleaksignore` limitation. RepoSentinel's native rules do not depend on it.
 
-None of these tools was installed on the development machine, and RepoSentinel
-never downloads or installs tools itself.
+RepoSentinel never downloads or installs these tools itself.
 
 ## Summary
 
 | Tool | Licence | Status | Reason |
 |---|---|---|---|
-| Gitleaks | MIT | **Experimental**: adapter implemented and opt-in (`--integration gitleaks`), not yet verified against a real binary | Broad secret detection that complements RS-SEC-* |
+| Gitleaks | MIT | **Tested with 8.30.1** (Windows, Linux, macOS): adapter implemented and opt-in (`--integration gitleaks`) | Broad secret detection that complements RS-SEC-* |
 | Zizmor | MIT | Not integrated (next candidate) | Deep GitHub Actions analysis; overlaps RS-GHA-*; needs verification against a real binary |
 | OSV-Scanner | Apache-2.0 | Not integrated | Its default mode queries the osv.dev API, which conflicts with RepoSentinel's offline guarantee |
 
@@ -66,21 +66,21 @@ gitleaks dir <absolute repository path>
 
 ### Known gaps
 
-* **Not verified against a real Gitleaks binary.** The flags were checked
-  against Gitleaks' source code (v8.19.0 and `master`), and the behaviour is
-  tested with a simulated tool (`tests/test_integrations.py`). The simulation
-  proves RepoSentinel's side of the contract: the command line, error
-  handling, parsing, scope filtering and redaction. It cannot prove
-  compatibility. Still to confirm with a real release:
-  * the exact `gitleaks version` output format;
-  * the `File` path format on Windows (absolute or relative, separators);
-  * that `StartLine` is 1-based;
-  * the empty-report format (`[]` or `null`);
-  * that `--redact=100` and `--ignore-gitleaks-allow` behave as documented;
-  * that exit codes 42, 1 and 126 occur as expected.
+* **Tested with one release only.** Gitleaks 8.30.1 was tested on Windows,
+  Linux and macOS (see "Verification record"). Releases from 8.19.0 on are
+  accepted, but other releases have not been run; the flags were checked
+  against Gitleaks' source code (v8.19.0 and `master`). The simulated tests
+  in `tests/test_integrations.py` cover RepoSentinel's side of the contract
+  for any release: the command line, error handling, parsing, scope
+  filtering and redaction.
 * A `.gitleaksignore` file **inside the scanned repository** is still honoured
   (Gitleaks always reads `<source>/.gitleaksignore` and has no option to turn
-  this off), so a repository can hide some of its own Gitleaks results.
+  this off). With Gitleaks 8.30.1 in directory mode, an entry only hides a
+  result if it names the **absolute path** the folder is scanned from
+  (`C:/work/app/config.py:github-pat:3`); relative paths, rule names and
+  wildcards have no effect. So a repository can hide its own Gitleaks results
+  only where it can predict that path, which is realistic on CI runners
+  (`D:\a\<repo>\<repo>`, `/home/runner/work/<repo>/<repo>`).
   RepoSentinel's native rules are not affected.
 * Gitleaks' own file-size limit is in whole megabytes, so it may scan slightly
   larger files than RepoSentinel does.
@@ -92,11 +92,49 @@ gitleaks dir <absolute repository path>
   rule ID and the path. Comparing a scan made with `--integration gitleaks`
   against one made without it reports the check as not run.
 
-### Verifying the adapter against a real Gitleaks (next step)
+### Verification record
 
-Until every step below has been done on a real release, the integration
-stays **experimental**. Use only synthetic data: never point a first test at
-a real repository.
+**Windows 11, Gitleaks 8.30.1** (official `gitleaks_8.30.1_windows_x64.zip`,
+SHA-256 `d29144de...afc4e` matching the release's checksums file and GitHub's
+asset digest), 2026-11-03, following the steps below:
+
+| Step | Observed | As assumed? |
+|---|---|---|
+| 3a `gitleaks version` | `8.30.1` (no `v`), exit 0 | Yes |
+| 3b `dir` with the hardened flags | Exit 42. Fields: `RuleID`, `Description`, `File`, `StartLine`, `EndLine`, `StartColumn`, `EndColumn`, `Match`, `Secret`, `Entropy`, `Fingerprint`, `SymlinkFile`, `Commit`, `Author`, `Email`, `Date`, `Message`, `Tags`. `File` is **absolute with `/`** (`C:/Users/.../gl-demo/allow.py`). `StartLine` is 1-based, also with CRLF line endings. `Secret` and `Match` are `REDACTED` | Yes (the path format is handled) |
+| 3c without `--ignore-gitleaks-allow` | `allow.py` disappears; with the flag it is reported | Yes |
+| 3d clean folder | Exit 0, report `[]` | Yes |
+| 3e unknown option | Exit 126 | Yes |
+| 3f missing folder | Exit 1, no report written | Yes |
+| 4 `reposentinel scan --integration gitleaks` | Check completed, "Gitleaks 8.30.1: 2 result(s) imported", paths `allow.py`, `deploy/id_rsa`, `sub dir/app.py` (relative, `/`), same lines; no fake value in the report; clean folder gives a clean scan | Yes |
+| 4 failure path | Not on PATH, or only inside the scanned folder: check skipped, exit 3 | Yes |
+| extra | A `.gitleaks.toml` in the scanned folder that allow-lists everything hides every result when Gitleaks is run directly, but not through RepoSentinel (its own `--config` is used) | Yes |
+
+Gitleaks 8.30.1 does not report the demo repository's `app/settings.py`
+token (its random part is a run of letters), so line numbers were checked
+with a token it does report.
+
+**Linux (x64) and macOS (arm64), Gitleaks 8.30.1** (official
+`gitleaks_8.30.1_linux_x64.tar.gz` and `gitleaks_8.30.1_darwin_arm64.tar.gz`,
+fetched and SHA-256-checked by `scripts/fetch_gitleaks.py`), 2026-11-03: the
+six tests in `tests/test_gitleaks_real.py` passed on GitHub's `ubuntu-latest`
+and `macos-latest` runners, as on `windows-latest`. They repeat steps 3a, 3d,
+3e, 3f and 4 above: relative paths with `/`, 1-based lines also with CRLF,
+`gitleaks:allow` ignored, the repository's `.gitleaks.toml` not used, no fake
+value in the JSON report, a copy inside the scanned folder never run, and the
+`.gitleaksignore` behaviour described under "Known gaps". Not repeated there:
+step 3c without the flag, which shows only Gitleaks' own behaviour.
+
+These checks are automated in `tests/test_gitleaks_real.py`, which runs only
+when `REPOSENTINEL_GITLEAKS_DIR` names a folder holding a Gitleaks obtained
+with `scripts/fetch_gitleaks.py` (one pinned release, refused unless its
+SHA-256 matches). The CI job `gitleaks` runs them on Linux, Windows and
+macOS; it is not a required check.
+
+### Verifying the adapter against a real Gitleaks
+
+Do every step below before treating another Gitleaks release as tested.
+Use only synthetic data: never point a first test at a real repository.
 
 **1. Get an official binary and check it.** Download the archive for your
 platform and the checksums file (`gitleaks_<version>_checksums.txt`) from
@@ -185,9 +223,9 @@ so steps 3b and 4 should be done on Windows and on Linux or macOS.
 **6. Record the result.** Note the Gitleaks version, the operating systems,
 and every observed output in this section. Add a regression test to
 `tests/test_integrations.py` that uses the observed report shape (with
-synthetic, redacted values) and the observed exit codes. Only then change
-the status in the table at the top of this page and in the README from
-"experimental" to the verified version. If any observation differs from
+synthetic, redacted values) and the observed exit codes. Only then add the
+release to the status in the table at the top of this page and in the
+README. If any observation differs from
 the assumptions above, fix the adapter first and treat the difference as a
 bug, not as a documentation change.
 

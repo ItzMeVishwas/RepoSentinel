@@ -49,7 +49,7 @@ RepoSentinel **does**:
   with registered projects, opt-in scan history, one-click "scan again and
   compare", a findings explorer and exports;
 * optionally run an installed [Gitleaks](https://github.com/gitleaks/gitleaks)
-  (**experimental**: not yet tested against a real Gitleaks binary).
+  (tested with Gitleaks 8.30.1 on Windows, Linux and macOS).
 
 RepoSentinel **does not**:
 
@@ -144,7 +144,7 @@ reposentinel scan PATH -f json -o reposentinel-report.json
 reposentinel scan PATH -f html -o reposentinel-report.html
 reposentinel scan PATH -f sarif -o reposentinel.sarif    # SARIF 2.1.0
 reposentinel scan PATH --fail-on high                    # only high findings fail
-reposentinel scan PATH --integration gitleaks            # experimental
+reposentinel scan PATH --integration gitleaks            # needs Gitleaks on PATH
 reposentinel compare before.json after.json              # compare two JSON reports
 reposentinel ui                                          # the local web interface
 reposentinel demo FOLDER                                 # synthetic demo repository
@@ -158,7 +158,7 @@ reposentinel rules                                       # the rule catalogue
 | `--fail-on` | `low` | Lowest severity that makes the exit code 1 (`high`, `medium`, `low`, `info`, `never`) |
 | `--max-file-size-kb` | `1024` | Files larger than this are skipped (and listed under Coverage) |
 | `--max-files` | `50000` | Stop after this many files; the scan is then *incomplete* |
-| `--integration` | none | Experimental: run an installed external scanner (currently `gitleaks`) |
+| `--integration` | none | Also run an installed external scanner (currently `gitleaks`) |
 | `--no-color` | off | Plain terminal output (the `NO_COLOR` environment variable also works) |
 
 **Windows tip:** in Windows PowerShell 5.1, `... --format json > file.json`
@@ -563,13 +563,14 @@ it holds hand-written code. Check the **Excluded** list in the report.
   download it. Some file systems do not report file identities (inode 0), and
   the swap check is then skipped for those files.
 
-## Optional Gitleaks integration (experimental)
+## Optional Gitleaks integration
 
-> **Experimental.** The Gitleaks adapter has been checked against Gitleaks'
-> source code and a simulated Gitleaks, but **not against a real Gitleaks
-> binary**. Do not rely on it for security decisions until that test has been
-> done (see [docs/integrations.md](docs/integrations.md)). The check appears in
-> reports as "Gitleaks secret scan (experimental)".
+> **Tested with Gitleaks 8.30.1** on Windows, Linux and macOS, using official,
+> checksum-verified releases (see [docs/integrations.md](docs/integrations.md)).
+> Other releases from 8.19.0 on are accepted but untested. A `.gitleaksignore`
+> file inside the scanned repository can still hide Gitleaks results in some
+> situations (see "Known gaps" there); RepoSentinel's native rules are not
+> affected. The check appears in reports as "Gitleaks secret scan".
 
 `--integration gitleaks` runs a locally installed
 [Gitleaks](https://github.com/gitleaks/gitleaks) (MIT licence) in directory
