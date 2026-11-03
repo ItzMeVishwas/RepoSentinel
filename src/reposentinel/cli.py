@@ -271,7 +271,7 @@ def scan(
         list[Integration] | None,
         typer.Option(
             "--integration",
-            help="Experimental: also run an installed external scanner (repeatable). It must "
+            help="Also run an installed external scanner (repeatable). It must "
             "already be on PATH; RepoSentinel never downloads tools.",
             case_sensitive=False,
             show_default=False,

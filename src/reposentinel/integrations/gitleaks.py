@@ -1,8 +1,8 @@
-"""Optional, EXPERIMENTAL Gitleaks integration: ``--integration gitleaks``.
+"""Optional Gitleaks integration: ``--integration gitleaks``.
 
-Experimental means: verified against Gitleaks' source code and a simulated
-Gitleaks, but not yet against a real Gitleaks binary. Treat its results, and
-its error handling, as unconfirmed until that test has been done.
+Tested with Gitleaks 8.30.1 on Windows, Linux and macOS
+(``tests/test_gitleaks_real.py``, run in CI against official, checksum-verified
+releases). Releases from 8.19.0 on are accepted; other releases are untested.
 
 Gitleaks (MIT licence, https://github.com/gitleaks/gitleaks) has far broader
 secret coverage than RepoSentinel's five native patterns. RepoSentinel never
@@ -189,7 +189,7 @@ def convert_results(entries: list[Any], context: ScanContext) -> tuple[list[Find
 
 class GitleaksCheck(Check):
     id = "gitleaks"
-    name = "Gitleaks secret scan (experimental)"
+    name = "Gitleaks secret scan"
     description = "Runs a locally installed Gitleaks in directory mode and imports its results."
     rules: ClassVar[tuple[Rule, ...]] = ()  # IDs come from Gitleaks: "gitleaks:<RuleID>"
 

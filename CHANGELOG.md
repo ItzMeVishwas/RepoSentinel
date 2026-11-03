@@ -22,8 +22,9 @@ the first release.
 * `reposentinel demo FOLDER`: creates a synthetic repository with fake
   credentials that triggers every rule.
 * `reposentinel rules`: the rule catalogue.
-* Experimental Gitleaks integration (`--integration gitleaks`), not yet
-  verified against a real Gitleaks binary.
+* Optional Gitleaks integration (`--integration gitleaks`), tested with
+  official, checksum-verified Gitleaks 8.30.1 releases on Windows, Linux and
+  macOS (`tests/test_gitleaks_real.py`, run in CI).
 
 ### Local web interface
 
