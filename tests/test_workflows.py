@@ -429,6 +429,69 @@ def test_yaml_aliases_do_not_cause_repeated_work(make_repo: RepoFactory) -> None
     assert [f.rule_id for f in report.findings] == ["RS-GHA-001"]
 
 
+def nested_alias_workflow(jobs: int, steps: int) -> str:
+    # Every job aliases one step list, and every step in it aliases one step, so
+    # analysing it means visiting jobs * steps steps although the file is small.
+    lines = [
+        "on: issues",
+        "x-steps: &steps",
+        '  - &step {run: "echo ${{ github.event.issue.title }}"}',
+        *["  - *step"] * (steps - 1),
+        "jobs:",
+        *[f"  job{i}: {{runs-on: ubuntu-latest, steps: *steps}}" for i in range(jobs)],
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def test_nested_yaml_aliases_are_not_analysed(make_repo: RepoFactory) -> None:
+    # 1000 jobs x 1000 steps from a 40 KB file: this took minutes and gigabytes.
+    workflow = nested_alias_workflow(jobs=1000, steps=1000)
+    started = time.perf_counter()
+    report = scan(make_repo({".github/workflows/amplified.yml": workflow}))
+    assert time.perf_counter() - started < 10
+    (issue,) = report.coverage
+    assert (issue.path, issue.reason) == (
+        ".github/workflows/amplified.yml",
+        CoverageReason.UNPARSEABLE,
+    )
+    assert "aliases" in issue.detail
+    assert report.findings == ()
+    assert report.outcome is Outcome.INCOMPLETE
+    (result,) = [c for c in report.checks if c.check_id == "github-actions"]
+    assert result.examined_paths == ()  # so a comparison says "not re-checked"
+
+
+def test_cyclic_yaml_alias_is_not_analysed(make_repo: RepoFactory) -> None:
+    workflow = "on: issues\njobs:\n  job: &job\n    runs-on: ubuntu-latest\n    needs: [*job]\n"
+    report = scan(make_repo({".github/workflows/cycle.yml": workflow}))
+    assert [(i.reason, "aliases" in i.detail) for i in report.coverage] == [
+        (CoverageReason.UNPARSEABLE, True)
+    ]
+
+
+def test_ordinary_anchor_reuse_is_still_analysed(make_repo: RepoFactory) -> None:
+    # 20 jobs sharing 30 steps through anchors is far beyond typical use and
+    # stays within the allowance.
+    report = scan(make_repo({".github/workflows/reuse.yml": nested_alias_workflow(20, 30)}))
+    assert report.coverage == ()
+    assert [f.rule_id for f in report.findings] == ["RS-GHA-001"]
+
+
+def test_large_workflow_without_aliases_is_analysed(make_repo: RepoFactory) -> None:
+    # Size alone never triggers the alias limit: a 700 KB file with no aliases.
+    jobs = [
+        f"  job{i}:\n    runs-on: ubuntu-latest\n    steps:\n"
+        + "".join(f"      - run: echo step {n} of job {i}\n" for n in range(20))
+        for i in range(1000)
+    ]
+    workflow = "on: push\njobs:\n" + "".join(jobs)
+    assert len(workflow) > 700_000
+    report = scan(make_repo({".github/workflows/big.yml": workflow}))
+    assert report.coverage == ()
+    (result,) = [c for c in report.checks if c.check_id == "github-actions"]
+    assert result.examined_paths == (".github/workflows/big.yml",)
+
+
 def test_on_key_is_not_confused_with_boolean(make_repo: RepoFactory) -> None:
     # YAML 1.1 reads a bare `on` key as True; the node-based parser keeps "on".
     workflow = PR_TARGET_CHECKOUT.format(

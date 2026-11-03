@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import re
 import socket
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -15,9 +18,13 @@ from reposentinel import demo
 from reposentinel.checks import all_rules
 from reposentinel.models import Severity
 from reposentinel.reporting import make_console, render_html, render_json, render_terminal
-from tests.helpers import scan
+from tests.helpers import create_junction, scan
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+# CI sets this on Linux and macOS, where creating symbolic links needs no
+# privilege, so the symbolic-link tests must run there instead of skipping.
+REQUIRE_SYMLINKS = os.environ.get("REPOSENTINEL_REQUIRE_SYMLINK_TESTS") == "1"
 
 
 def load_script(name: str) -> ModuleType:
@@ -49,6 +56,95 @@ def test_demo_script_refuses_non_empty_directory(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         demo.create_demo_repo(tmp_path)
     assert [p.name for p in tmp_path.iterdir()] == ["keep.txt"]
+
+
+# Another program or user who can write to the demo folder could put something
+# there after create_demo_repo checked that the folder is empty. build_files()
+# runs after that check, so planting the object when it is called reproduces
+# the race deterministically.
+
+
+def plant_during_demo(monkeypatch: pytest.MonkeyPatch, plant: Callable[[], object]) -> None:
+    original = demo.build_files
+
+    def build_files_after_planting() -> dict[str, str]:
+        plant()
+        return original()
+
+    monkeypatch.setattr(demo, "build_files", build_files_after_planting)
+
+
+def make_other_folder(tmp_path: Path) -> Path:
+    other = tmp_path / "other"  # an unrelated folder of the user
+    other.mkdir()
+    (other / "settings.py").write_text("user data", encoding="utf-8")
+    return other
+
+
+def assert_untouched(other: Path) -> None:
+    assert [p.name for p in other.iterdir()] == ["settings.py"]
+    assert (other / "settings.py").read_text(encoding="utf-8") == "user data"
+
+
+def try_symlink(target: Path, link: Path, *, directory: bool) -> None:
+    try:
+        os.symlink(target, link, target_is_directory=directory)
+    except (OSError, NotImplementedError) as exc:  # Windows needs a privilege for this
+        if REQUIRE_SYMLINKS:
+            pytest.fail(f"REPOSENTINEL_REQUIRE_SYMLINK_TESTS=1 but a link could not be made: {exc}")
+        pytest.skip(f"cannot create symbolic links here: {exc}")
+
+
+def test_demo_never_overwrites_a_file_that_appears_while_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "demo"
+    target.mkdir()
+    planted = target / ".env"
+    plant_during_demo(monkeypatch, lambda: planted.write_text("user data", encoding="utf-8"))
+    with pytest.raises(FileExistsError, match="appeared while the demo was being written"):
+        demo.create_demo_repo(target)
+    assert planted.read_text(encoding="utf-8") == "user data"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="junctions exist only on Windows")
+def test_demo_does_not_write_through_a_junction_that_appears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = make_other_folder(tmp_path)
+    target = tmp_path / "demo"
+    target.mkdir()
+    plant_during_demo(monkeypatch, lambda: create_junction(other, target / "app"))
+    with pytest.raises(FileExistsError, match="appeared while the demo was being written"):
+        demo.create_demo_repo(target)
+    assert_untouched(other)
+
+
+def test_demo_does_not_write_through_a_folder_symlink_that_appears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = make_other_folder(tmp_path)
+    target = tmp_path / "demo"
+    target.mkdir()
+    plant_during_demo(monkeypatch, lambda: try_symlink(other, target / "app", directory=True))
+    with pytest.raises(FileExistsError, match="appeared while the demo was being written"):
+        demo.create_demo_repo(target)
+    assert_untouched(other)
+
+
+def test_demo_does_not_write_through_a_file_symlink_that_appears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = make_other_folder(tmp_path)
+    target = tmp_path / "demo"
+    target.mkdir()
+    link = target / "README.md"
+    plant_during_demo(
+        monkeypatch, lambda: try_symlink(other / "settings.py", link, directory=False)
+    )
+    with pytest.raises(FileExistsError, match="appeared while the demo was being written"):
+        demo.create_demo_repo(target)
+    assert_untouched(other)
 
 
 def test_rule_catalogue_is_complete_and_well_formed() -> None:
