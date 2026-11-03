@@ -24,7 +24,9 @@ minimal *synthetic* repository that reproduces the problem. Never include
 real credentials.
 
 This is a volunteer, alpha-stage project: there is no bug bounty, and
-responses are best effort.
+responses are best effort. RepoSentinel has not had an independent security
+audit or penetration test; its protections were designed and tested by the
+project itself.
 
 ## Supported versions
 

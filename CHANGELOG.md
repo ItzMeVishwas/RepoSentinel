@@ -72,9 +72,13 @@ the first release.
 ### Known limitations
 
 * Git history and dependencies are not scanned.
-* On macOS only the automated Python tests run (in CI). Firefox, Safari and
-  screen readers are not verified, and no external user has validated the
-  product.
+* On macOS only automated tests run (in CI): the Python test suite and the
+  real-Gitleaks tests. The web interface is tested automatically in Chrome,
+  Edge and Firefox; Safari and screen readers are not verified, and no
+  external user has validated the product.
+* No independent security audit or penetration test has been performed. The
+  security measures described here were designed and tested by the project
+  itself.
 
 ### Fixed after the first CI runs
 
