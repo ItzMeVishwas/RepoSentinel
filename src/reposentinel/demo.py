@@ -97,11 +97,20 @@ def create_demo_repo(target: Path) -> list[Path]:
     or symbolic link named ``app`` that points to another folder). So every
     folder below ``target`` is created here, and every file is created with
     exclusive creation (``O_CREAT | O_EXCL``), which never opens an existing
-    file or link: if anything appears at one of these paths, the demo stops.
-    It therefore never overwrites or truncates an existing file. Still
-    possible: someone who can write to ``target`` replaces a folder created
-    here with a link in the moment before the next file in it is created; that
-    can only create a new demo file elsewhere.
+    file or link: if a file, folder or link already exists at the path of a
+    folder or file the demo is about to create, the demo stops. It therefore
+    never overwrites or truncates an existing file.
+
+    Still possible, and not detected: someone who can write to ``target``
+    replaces a folder created here (for example ``app`` or ``.github``) with a
+    link to another folder at any time after the demo creates it and before
+    the demo has finished writing into it. The demo then creates its remaining
+    files and subfolders for that folder inside the other folder instead,
+    wherever nothing of the same name exists there yet, and still reports
+    success. These are new files and folders with the demo's fixed names and
+    content (fake credentials and deliberately unsafe workflow files); no
+    existing file is changed. Preventing this would need platform-specific
+    directory handles.
     """
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise FileExistsError(f"{target} already exists and is not an empty directory")
