@@ -153,7 +153,12 @@ This produces a node tree rather than Python objects. Nodes carry line numbers,
 the key `on` stays a string (YAML 1.1 would otherwise read it as `True`),
 aliases are shared nodes rather than copies, and nothing is ever constructed or
 executed. Deeply nested YAML that exhausts PyYAML's recursion is recorded as
-unparseable instead of crashing the scan.
+unparseable instead of crashing the scan. Because the analysis visits an
+anchored node again for every alias that refers to it, nested aliases could
+multiply the work (a 30 KB file could keep a scan busy for minutes), so a
+workflow whose alias-expanded size is more than four times its size without
+repetition (beyond a fixed allowance for small files), or that contains an
+alias cycle, is also recorded as unparseable and not analysed.
 
 ### Adding a rule
 

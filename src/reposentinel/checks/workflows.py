@@ -327,6 +327,70 @@ def parse_workflow(text: str) -> yaml.Node | None:
     return node
 
 
+# An alias (*name) reuses an anchored node without copying it, but the analysis
+# visits that node again wherever an alias refers to it. Nested aliases multiply:
+# a 30 KB file whose jobs alias one job whose steps alias one step took almost
+# a minute and hundreds of MiB, and a 1 MiB file would never finish. So a
+# workflow whose alias-expanded size is far larger than the file itself is not
+# analysed. Ordinary reuse (GitHub Actions supports anchors) stays well within
+# the allowance.
+MAX_ALIAS_EXPANSION = 4  # times the size without repetition
+ALIAS_EXPANSION_ALLOWANCE = 100_000  # always allowed, so small files may reuse freely
+
+
+def _node_weight(node: yaml.Node) -> int:
+    return 1 + len(node.value) if isinstance(node, yaml.ScalarNode) else 1
+
+
+def _children(node: yaml.Node) -> list[yaml.Node]:
+    if isinstance(node, yaml.MappingNode):
+        return [part for pair in node.value for part in pair]
+    if isinstance(node, yaml.SequenceNode):
+        return list(node.value)
+    return []
+
+
+def alias_expansion_too_large(root: yaml.Node) -> bool:
+    """True if expanding the aliases in ``root`` would make it far larger than it is.
+
+    Size counts nodes plus the characters of scalar values. Both sizes are
+    computed in time linear in the number of distinct nodes; a cycle (an alias
+    inside the node it refers to) counts as too large.
+    """
+    distinct: dict[int, yaml.Node] = {}
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        if id(node) not in distinct:
+            distinct[id(node)] = node
+            pending.extend(_children(node))
+    limit = max(
+        MAX_ALIAS_EXPANSION * sum(map(_node_weight, distinct.values())),
+        ALIAS_EXPANSION_ALLOWANCE,
+    )
+    # Expanded size of every node, children first; sums stop growing past the
+    # limit, so the numbers stay small however deep the aliases go.
+    expanded: dict[int, int] = {}
+    in_progress: set[int] = set()
+    stack: list[tuple[yaml.Node, bool]] = [(root, False)]
+    while stack:
+        node, children_done = stack.pop()
+        key = id(node)
+        if children_done:
+            in_progress.discard(key)
+            total = _node_weight(node) + sum(expanded[id(c)] for c in _children(node))
+            expanded[key] = min(total, limit + 1)
+            continue
+        if key in expanded:
+            continue
+        if key in in_progress:
+            return True  # a cycle: infinite when expanded
+        in_progress.add(key)
+        stack.append((node, True))
+        stack.extend((child, False) for child in _children(node) if id(child) not in expanded)
+    return expanded[id(root)] > limit
+
+
 _QUOTED_RE = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
 
 
@@ -421,6 +485,14 @@ class WorkflowCheck(Check):
                 # Not analysed, so not counted as examined (it is a coverage issue).
                 context.record_issue(
                     entry.path, CoverageReason.UNPARSEABLE, "top level is not a YAML mapping"
+                )
+                continue
+            if alias_expansion_too_large(root):
+                context.record_issue(
+                    entry.path,
+                    CoverageReason.UNPARSEABLE,
+                    "YAML aliases repeat parts of this workflow so often that analysing it "
+                    "would take too long; not analysed",
                 )
                 continue
             examined.append(entry.path)
