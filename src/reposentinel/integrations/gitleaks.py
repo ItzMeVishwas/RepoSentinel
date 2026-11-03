@@ -208,8 +208,9 @@ class GitleaksCheck(Check):
         executable = self._finder("gitleaks", context.root)
         if executable is None:
             raise CheckSkipped(
-                "gitleaks was not found on PATH (RepoSentinel never downloads tools). Install it "
-                "from https://github.com/gitleaks/gitleaks/releases or a package manager, or "
+                "gitleaks was not found on PATH (a copy inside the scanned folder is never "
+                "run, and RepoSentinel never downloads tools). Install it from "
+                "https://github.com/gitleaks/gitleaks/releases or a package manager, or "
                 "run without --integration gitleaks."
             )
         with tempfile.TemporaryDirectory(prefix="reposentinel-gitleaks-") as temporary:

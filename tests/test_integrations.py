@@ -105,6 +105,36 @@ def test_results_become_findings_without_secret_values(make_repo: RepoFactory) -
     assert check.examined is None  # Gitleaks does not report a file count
 
 
+def test_report_shape_observed_from_gitleaks_8_30_1(make_repo: RepoFactory) -> None:
+    # The fields Gitleaks 8.30.1 wrote in directory mode with --redact=100,
+    # recorded on Windows: File is absolute with '/' separators even there.
+    root = make_repo({"sub dir/app.py": "x\n" * 3})
+    observed = {
+        "RuleID": "github-pat",
+        "Description": "Uncovered a GitHub Personal Access Token",
+        "StartLine": 3,
+        "EndLine": 3,
+        "StartColumn": 10,
+        "EndColumn": 49,
+        "Match": "REDACTED",
+        "Secret": "REDACTED",
+        "File": (root / "sub dir" / "app.py").as_posix(),
+        "SymlinkFile": "",
+        "Commit": "",
+        "Entropy": 3.9,
+        "Author": "",
+        "Email": "",
+        "Date": "",
+        "Message": "",
+        "Tags": [],
+        "Fingerprint": (root / "sub dir" / "app.py").as_posix() + ":github-pat:3",
+    }
+    report = gitleaks_scan(root, FakeGitleaks(report=[observed]))
+    assert [(f.rule_id, f.path, f.line) for f in report.findings] == [
+        ("gitleaks:github-pat", "sub dir/app.py", 3)
+    ]
+
+
 def test_relative_paths_are_resolved_against_the_root(make_repo: RepoFactory) -> None:
     root = make_repo({"a.txt": "x"})
     report = gitleaks_scan(root, FakeGitleaks(report=[leak("a.txt", line=1)]))

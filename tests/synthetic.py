@@ -11,6 +11,8 @@ from __future__ import annotations
 import string
 
 GITHUB_TOKEN = "ghp_" + string.digits + string.ascii_lowercase  # ghp_ + 36 characters
+# Gitleaks 8.30 does not report GITHUB_TOKEN above (a run of letters), but reports this.
+GITLEAKS_GITHUB_TOKEN = "ghp_" + "0123456789" * 3 + "abcdef"
 GITHUB_FINE_GRAINED_TOKEN = "github_pat_" + "A1" * 11 + "_" + "b2" * 29 + "c"  # 82 after prefix
 AWS_KEY_ID = "AKIA" + "TESTONLY" + "0" * 8
 AWS_TEMP_KEY_ID = "ASIA" + "TESTONLY" + "1" * 8
@@ -26,6 +28,7 @@ PEM_OPENSSH_HEADER = "-----BEGIN " + "OPENSSH PRIVATE KEY-----"
 # Values that must never appear in any report, log or error message.
 SECRET_VALUES = (
     GITHUB_TOKEN,
+    GITLEAKS_GITHUB_TOKEN,
     GITHUB_FINE_GRAINED_TOKEN,
     AWS_KEY_ID,
     AWS_TEMP_KEY_ID,

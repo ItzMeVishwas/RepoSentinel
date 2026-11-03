@@ -80,7 +80,12 @@ gitleaks dir <absolute repository path>
   * that exit codes 42, 1 and 126 occur as expected.
 * A `.gitleaksignore` file **inside the scanned repository** is still honoured
   (Gitleaks always reads `<source>/.gitleaksignore` and has no option to turn
-  this off), so a repository can hide some of its own Gitleaks results.
+  this off). With Gitleaks 8.30.1 in directory mode, an entry only hides a
+  result if it names the **absolute path** the folder is scanned from
+  (`C:/work/app/config.py:github-pat:3`); relative paths, rule names and
+  wildcards have no effect. So a repository can hide its own Gitleaks results
+  only where it can predict that path, which is realistic on CI runners
+  (`D:\a\<repo>\<repo>`, `/home/runner/work/<repo>/<repo>`).
   RepoSentinel's native rules are not affected.
 * Gitleaks' own file-size limit is in whole megabytes, so it may scan slightly
   larger files than RepoSentinel does.
@@ -92,7 +97,35 @@ gitleaks dir <absolute repository path>
   rule ID and the path. Comparing a scan made with `--integration gitleaks`
   against one made without it reports the check as not run.
 
-### Verifying the adapter against a real Gitleaks (next step)
+### Verification record
+
+**Windows 11, Gitleaks 8.30.1** (official `gitleaks_8.30.1_windows_x64.zip`,
+SHA-256 `d29144de...afc4e` matching the release's checksums file and GitHub's
+asset digest), 2026-11-03, following the steps below:
+
+| Step | Observed | As assumed? |
+|---|---|---|
+| 3a `gitleaks version` | `8.30.1` (no `v`), exit 0 | Yes |
+| 3b `dir` with the hardened flags | Exit 42. Fields: `RuleID`, `Description`, `File`, `StartLine`, `EndLine`, `StartColumn`, `EndColumn`, `Match`, `Secret`, `Entropy`, `Fingerprint`, `SymlinkFile`, `Commit`, `Author`, `Email`, `Date`, `Message`, `Tags`. `File` is **absolute with `/`** (`C:/Users/.../gl-demo/allow.py`). `StartLine` is 1-based, also with CRLF line endings. `Secret` and `Match` are `REDACTED` | Yes (the path format is handled) |
+| 3c without `--ignore-gitleaks-allow` | `allow.py` disappears; with the flag it is reported | Yes |
+| 3d clean folder | Exit 0, report `[]` | Yes |
+| 3e unknown option | Exit 126 | Yes |
+| 3f missing folder | Exit 1, no report written | Yes |
+| 4 `reposentinel scan --integration gitleaks` | Check completed, "Gitleaks 8.30.1: 2 result(s) imported", paths `allow.py`, `deploy/id_rsa`, `sub dir/app.py` (relative, `/`), same lines; no fake value in the report; clean folder gives a clean scan | Yes |
+| 4 failure path | Not on PATH, or only inside the scanned folder: check skipped, exit 3 | Yes |
+| extra | A `.gitleaks.toml` in the scanned folder that allow-lists everything hides every result when Gitleaks is run directly, but not through RepoSentinel (its own `--config` is used) | Yes |
+
+Gitleaks 8.30.1 does not report the demo repository's `app/settings.py`
+token (its random part is a run of letters), so line numbers were checked
+with a token it does report.
+
+These checks are automated in `tests/test_gitleaks_real.py`, which runs only
+when `REPOSENTINEL_GITLEAKS_DIR` names a folder holding a Gitleaks obtained
+with `scripts/fetch_gitleaks.py` (one pinned release, refused unless its
+SHA-256 matches). The CI job `gitleaks` runs them on Linux, Windows and
+macOS; it is not a required check.
+
+### Verifying the adapter against a real Gitleaks
 
 Until every step below has been done on a real release, the integration
 stays **experimental**. Use only synthetic data: never point a first test at
