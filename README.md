@@ -73,14 +73,62 @@ RepoSentinel **does not**:
 
 ## Installation
 
-RepoSentinel is not on PyPI yet. Once it is published, it will install with
-`python -m pip install reposentinel-scanner`: the package on PyPI is called
-`reposentinel-scanner` (the shorter name was not available), while the
-command and the Python package stay `reposentinel`.
+RepoSentinel needs Python 3.12 or newer. It is published on PyPI as
+[`reposentinel-scanner`](https://pypi.org/project/reposentinel-scanner/) (the
+shorter name was not available); the command and the Python package are
+`reposentinel`:
 
-Until then, install it from a source checkout. You need Python 3.12 or newer,
-and Node.js 22.12 or newer to build the web interface (the command line works
-without it).
+```bash
+pip install reposentinel-scanner
+```
+
+Installing it into its own virtual environment is recommended.
+
+Windows (PowerShell):
+
+```powershell
+py -3 -m venv rs-env
+.\rs-env\Scripts\python.exe -m pip install reposentinel-scanner
+.\rs-env\Scripts\python.exe -m reposentinel --version
+```
+
+Linux and macOS:
+
+```bash
+python3 -m venv rs-env
+rs-env/bin/python -m pip install reposentinel-scanner
+rs-env/bin/python -m reposentinel --version
+```
+
+The last command prints `reposentinel 0.1.0`. The web interface
+(`reposentinel ui`) is included; Node.js is only needed to work on
+RepoSentinel itself (see "From a source checkout" below).
+
+Basic usage, with the virtual environment's Python (or the installed
+`reposentinel` command):
+
+```bash
+python -m reposentinel --help          # all commands and options
+python -m reposentinel scan PATH       # scan a repository folder
+python -m reposentinel ui              # the local web interface
+```
+
+`python -m reposentinel` always works; the installed `reposentinel` command
+does the same. If PowerShell refuses to run the venv activation script, keep
+using the full paths above; there is no need to change system settings. If
+Windows Smart App Control blocks the newly created `reposentinel.exe`
+launcher, use `python -m reposentinel`: it behaves identically. Do not turn
+the protection off for this.
+
+The optional Gitleaks integration needs Gitleaks itself, which RepoSentinel
+never downloads; see [Optional Gitleaks integration](#optional-gitleaks-integration).
+
+### From a source checkout
+
+The source code is at
+[github.com/ItzMeVishwas/RepoSentinel](https://github.com/ItzMeVishwas/RepoSentinel).
+You need Python 3.12 or newer, and Node.js 22.12 or newer to build the web
+interface (the command line works without it).
 
 Windows (PowerShell):
 
@@ -101,13 +149,6 @@ python3 -m venv .venv
 (cd frontend && npm ci --ignore-scripts && npm run build)   # optional: the web interface
 .venv/bin/python -m reposentinel --help
 ```
-
-`python -m reposentinel` always works; the installed `reposentinel` command
-does the same. If PowerShell refuses to run the venv activation script, keep
-using the full paths above; there is no need to change system settings. If
-Windows Smart App Control blocks the newly created `reposentinel.exe`
-launcher, use `python -m reposentinel`: it behaves identically. Do not turn
-the protection off for this.
 
 To build installable release archives (wheel and source distribution), see
 [docs/releasing.md](docs/releasing.md).
