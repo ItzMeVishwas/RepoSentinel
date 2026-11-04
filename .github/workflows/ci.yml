@@ -505,10 +505,13 @@ jobs:
                 fail "$name is missing from $1 or is not a regular file."
             done
             sha256sum -- "$1/$WHEEL_NAME" "$1/$SDIST_NAME"
-            actual=$(sha256sum -- "$1/$WHEEL_NAME" | cut -d " " -f 1)
+            # The file is read from standard input, so the output holds no file
+            # name: for a name with a backslash (RUNNER_TEMP on Windows),
+            # sha256sum would escape the line and put a backslash before the hash.
+            actual=$(sha256sum < "$1/$WHEEL_NAME" | cut -d " " -f 1)
             [ "$actual" = "$EXPECTED_WHEEL" ] ||
               fail "The wheel's SHA-256 is not the expected value."
-            actual=$(sha256sum -- "$1/$SDIST_NAME" | cut -d " " -f 1)
+            actual=$(sha256sum < "$1/$SDIST_NAME" | cut -d " " -f 1)
             [ "$actual" = "$EXPECTED_SDIST" ] ||
               fail "The source archive's SHA-256 is not the expected value."
           }

@@ -636,6 +636,38 @@ def run_check(job: str, tmp_path: Path, env: dict[str, str]) -> subprocess.Compl
 BOTH = pytest.mark.parametrize("job", ["build", "publish", "reference-build"])
 
 
+def runner_temp_with_a_backslash(tmp_path: Path) -> tuple[Path, str]:
+    """A RUNNER_TEMP value with backslashes, as on GitHub's Windows runners (D:, a, _temp).
+
+    GNU sha256sum escapes its output line (a leading backslash before the hash)
+    when the file name contains a backslash; the check must still read the hash.
+    """
+    if os.name == "nt":
+        folder = tmp_path / "runner_temp"
+        return folder, str(folder)  # the native form, with backslashes
+    folder = tmp_path / ("runner" + BACKSLASH + "temp")  # a backslash in a folder name
+    return folder, folder.as_posix()
+
+
+@needs_bash
+@pytest.mark.parametrize("job", ["publish", "reference-build"])
+def test_a_runner_temp_with_backslashes_is_checked_correctly(tmp_path: Path, job: str) -> None:
+    folder, value = runner_temp_with_a_backslash(tmp_path)
+    assert BACKSLASH in value
+    make_archives(folder / ("downloaded" if job == "publish" else "reference-dist"))
+    name = PUBLISH_STEP if job == "publish" else CI_COMPARE_STEP
+    runner = {"RUNNER_TEMP": value}
+    for workspace in ("good", "bad-wheel", "bad-sdist"):
+        (tmp_path / workspace).mkdir()
+    good = run_step(job, name, folder_env(), tmp_path / "good", runner)
+    assert good.returncode == 0, good.stdout + good.stderr
+    # Wrong values are still refused for such a path.
+    for workspace, key in (("bad-wheel", "EXPECTED_WHEEL"), ("bad-sdist", "EXPECTED_SDIST")):
+        bad = run_step(job, name, folder_env(**{key: "0" * 64}), tmp_path / workspace, runner)
+        assert bad.returncode != 0
+        assert "is not the expected value." in bad.stdout
+
+
 @needs_bash
 @BOTH
 def test_exactly_the_two_expected_archives_pass(tmp_path: Path, job: str) -> None:
