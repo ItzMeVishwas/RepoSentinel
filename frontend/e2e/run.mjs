@@ -389,7 +389,13 @@ try {
   await page.goto(launchUrl, { waitUntil: 'networkidle0' });
   const basePath = new URL(page.url()).pathname;
   check('launch link redirects to the app under a secret base path', /^\/s\/[A-Za-z0-9_-]{22,}\/$/.test(basePath), basePath.replace(/\/s\/.+\//, '/s/<prefix>/'));
-  check('session secret is not in the address bar', !page.url().includes('launch'));
+  // The app removes the code with history.replaceState as its first step. Read
+  // the page's own location: over WebDriver BiDi (Firefox), puppeteer learns of
+  // replaceState from a separate event, so page.url() can briefly lag behind.
+  const codeRemoved = await page
+    .waitForFunction(() => !window.location.href.includes('launch'), { timeout: 5000 })
+    .then(() => true, () => false);
+  check('session secret is not in the address bar', codeRemoved);
   await page.waitForSelector('nav[aria-label=Main]');
   check('the launch code is removed from the address bar', new URL(page.url()).hash === '' && !page.url().includes('launch='));
   check('no cookie is set', (await page.cookies()).length === 0 && (await page.evaluate(() => document.cookie)) === '');
@@ -597,7 +603,14 @@ try {
   await oldInput.uploadFile(before);
   await newInput.uploadFile(after);
   await clickButton(page, 'Compare reports');
-  await page.waitForFunction((h) => document.body.innerText.includes(h) && document.body.innerText.includes('before.json'), {}, cliCompare.headline);
+  // The headline (from the saved-scan comparison) and the file name (shown when
+  // a file is chosen) are already on the page, so also wait for the request to
+  // finish: the form disables its file inputs while it runs.
+  await page.waitForFunction(
+    (h) => document.body.innerText.includes(h) && document.body.innerText.includes('before.json') && !document.querySelector('#old-report').disabled,
+    {},
+    cliCompare.headline,
+  );
   check('comparing two uploaded JSON reports equals the CLI', (await visibleText(page)).includes(`Exit code ${cliCompare.exit_code}`));
   const broken = join(work, 'broken.json');
   writeFileSync(broken, '{ not json', 'utf-8');
