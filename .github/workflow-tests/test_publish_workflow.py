@@ -1,5 +1,8 @@
 # ruff: noqa: S101 - plain asserts, as in tests/ (see pyproject.toml)
-"""Tests for .github/workflows/publish.yml (the trusted-publishing workflow).
+"""Tests for the trusted-publishing workflow and its reference build.
+
+Covered: .github/workflows/publish.yml, the shared reference build
+(.github/actions/reference-build) and the ci.yml job "reference-build".
 
 They are in .github/workflow-tests on purpose. The source archive includes
 every file or folder named like an entry of the sdist `include` list in
@@ -31,10 +34,21 @@ WORKFLOW = Path(__file__).resolve().parents[1] / "workflows" / "publish.yml"
 TEXT = WORKFLOW.read_text(encoding="utf-8")
 DATA: dict[Any, Any] = yaml.safe_load(TEXT)
 JOBS: dict[str, Any] = DATA["jobs"]
+GITHUB = WORKFLOW.parents[1]
+ROOT = GITHUB.parent
+ACTION_DIR = GITHUB / "actions" / "reference-build"
+ACTION_TEXT = (ACTION_DIR / "action.yml").read_text(encoding="utf-8")
+ACTION: dict[str, Any] = yaml.safe_load(ACTION_TEXT)
+CI_TEXT = (GITHUB / "workflows" / "ci.yml").read_text(encoding="utf-8")
+CI: dict[Any, Any] = yaml.safe_load(CI_TEXT)
+CI_JOBS: dict[str, Any] = CI["jobs"]
+BACKSLASH = chr(92)
 
 INPUTS_STEP = "Check and normalise the version and the SHA-256 values"
 BUILD_STEP = "Check that dist/ holds exactly the two expected archives"
 PUBLISH_STEP = "Copy exactly the two verified archives into a new folder and check them again"
+CI_READ_STEP = "Read the release commit and the expected SHA-256"
+CI_COMPARE_STEP = "Compare the archives with the expected SHA-256"
 
 WHEEL = "reposentinel_scanner-0.1.0-py3-none-any.whl"
 SDIST = "reposentinel_scanner-0.1.0.tar.gz"
@@ -61,7 +75,9 @@ needs_bash = pytest.mark.skipif(BASH is None, reason="bash is not available")
 
 
 def step(job: str, name: str) -> dict[str, Any]:
-    matches: list[dict[str, Any]] = [s for s in JOBS[job]["steps"] if s.get("name") == name]
+    """A step of a publish.yml job, or of the ci.yml job "reference-build"."""
+    jobs = JOBS if job in JOBS else CI_JOBS
+    matches: list[dict[str, Any]] = [s for s in jobs[job]["steps"] if s.get("name") == name]
     assert len(matches) == 1, f"{job}: expected one step named {name!r}"
     return matches[0]
 
@@ -130,11 +146,18 @@ def test_job_order_and_the_branch_or_tag_condition() -> None:
 
 
 def test_every_action_is_pinned_to_a_full_commit_sha() -> None:
-    uses = re.findall(r"^\s*(?:-\s*)?uses:\s*(\S+)(.*)$", TEXT, re.MULTILINE)
-    assert len(uses) == 7
-    for target, comment in uses:
-        assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", target), target
-        assert re.fullmatch(r"\s*# v\d+\.\d+\.\d+", comment), target
+    local = {"./.github/actions/reference-build", "./head/.github/actions/reference-build"}
+    counts = {}
+    for name, text in (("publish.yml", TEXT), ("ci.yml", CI_TEXT), ("action.yml", ACTION_TEXT)):
+        uses = re.findall(r"^\s*(?:-\s*)?uses:\s*(\S+)(.*)$", text, re.MULTILINE)
+        counts[name] = len(uses)
+        for target, comment in uses:
+            if target in local:  # this repository's own reference build
+                continue
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", target), target
+            assert re.fullmatch(r"\s*# v\d+\.\d+\.\d+", comment), target
+    assert counts["publish.yml"] == 6
+    assert counts["action.yml"] == 2
 
 
 def test_inputs_never_appear_inside_a_script() -> None:
@@ -144,17 +167,114 @@ def test_inputs_never_appear_inside_a_script() -> None:
 
 
 def test_the_reference_build_environment_is_pinned() -> None:
-    build = JOBS["build"]
-    assert build["runs-on"] == "windows-2025"
-    assert step("build", "Set up Python")["with"]["python-version"] == "3.13.17"
-    assert step("build", "Set up Node.js")["with"]["node-version"] == "24.21.0"
+    # publish.yml and ci.yml build with the same action on the same image.
+    assert JOBS["build"]["runs-on"] == "windows-2025"
+    assert CI_JOBS["reference-build"]["runs-on"] == "windows-2025"
     assert step("build", "Check out the repository")["with"]["persist-credentials"] is False
-    check = step("build", "Check the reference build environment")["run"]
-    assert "(3, 13, 17)" in check
-    assert '"1.3.1"' in check
-    assert '"v24.21.0"' in check
-    install = step("build", "Install the release tools")["run"]
-    assert '"build==1.3.0"' in install
+    build = step("build", "Build the release archives in the reference build environment")
+    assert build["uses"] == "./.github/actions/reference-build"
+    assert build["with"] == {"source": ".", "outdir": "dist"}
+
+    assert ACTION["runs"]["using"] == "composite"
+    steps = {s["name"]: s for s in ACTION["runs"]["steps"]}
+    assert steps["Set up Python"]["with"]["python-version"] == "3.13.17"
+    assert steps["Set up Node.js"]["with"]["node-version"] == "24.21.0"
+    check = steps["Check the reference build environment"]["run"]
+    for required in ('"win25"', "(3, 13, 17)", '"1.3.1"', '"v24.21.0"'):
+        assert required in check
+    install = steps["Install the pinned release tools"]["run"]
+    assert '--require-hashes --only-binary :all: -r "$PINS/release-tools.txt"' in install
+    assert "python -m pip check" in install
+    download = steps["Download the pinned build backend"]
+    assert (
+        '--require-hashes --only-binary :all: --dest "$WHEELS" -r "$PINS/build-backend.txt"'
+        in download["run"]
+    )
+    archives = steps["Build the release archives"]
+    # The isolated build environment can come only from the verified files.
+    assert archives["env"]["PIP_NO_INDEX"] == "1"
+    assert archives["env"]["PIP_FIND_LINKS"] == download["env"]["WHEELS"]
+    assert 'python scripts/build_release.py --outdir "$OUTDIR"' in archives["run"]
+    for item in ACTION["runs"]["steps"]:
+        assert "${{" not in item.get("run", "")
+
+
+def read_pins(name: str) -> dict[str, str]:
+    """Requirement name -> version; every requirement has exactly one SHA-256."""
+    text = (ACTION_DIR / name).read_text(encoding="ascii")
+    body = [line for line in text.splitlines() if line and not line.startswith("#")]
+    pins: dict[str, str] = {}
+    for first, second in zip(body[::2], body[1::2], strict=True):
+        assert first.endswith(" " + BACKSLASH), first
+        match = re.fullmatch(r"([a-z0-9-]+)==([0-9][0-9a-z.]*)", first[:-2])
+        assert match, first
+        assert re.fullmatch(r"    --hash=sha256:[0-9a-f]{64}", second), second
+        assert match[1] not in pins
+        pins[match[1]] = match[2]
+    return pins
+
+
+def test_every_build_tool_and_dependency_is_pinned_by_sha256() -> None:
+    tools = read_pins("release-tools.txt")
+    backend = read_pins("build-backend.txt")
+    assert len(tools) == 27
+    assert {"pip", "build", "twine", "packaging", "pyproject-hooks"} <= set(tools)
+    assert tools["build"] == "1.3.0"
+    assert tools["twine"] == "7.0.0"
+    assert set(backend) == {
+        "hatchling",
+        "packaging",
+        "pathspec",
+        "pluggy",
+        "tomlkit",
+        "trove-classifiers",
+    }
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert config["build-system"]["requires"] == [f"hatchling=={backend['hatchling']}"]
+
+
+def test_the_ci_reference_build_cannot_publish() -> None:
+    assert set(CI[True]) == {"push", "pull_request", "workflow_dispatch"}
+    assert CI["permissions"] == {"contents": "read"}
+    job = CI_JOBS["reference-build"]
+    assert job["permissions"] == {"contents": "read"}
+    assert "environment" not in job
+    text = yaml.safe_dump(job) + ACTION_TEXT
+    for forbidden in (
+        "secrets.",
+        "id-token",
+        "github.token",
+        "GITHUB_TOKEN",
+        "upload-artifact",
+        "download-artifact",
+        "gh-action-pypi-publish",
+        "twine upload",
+    ):
+        assert forbidden not in text, forbidden
+    assert [s["name"] for s in job["steps"]] == [
+        "Check out this commit (it defines the reference build)",
+        CI_READ_STEP,
+        "Check out the release commit",
+        "Build the release commit in the reference build environment",
+        CI_COMPARE_STEP,
+    ]
+    head, release = (s for s in job["steps"] if "checkout" in str(s.get("uses", "")))
+    assert head["with"] == {"path": "head", "persist-credentials": False}
+    assert release["with"] == {
+        "ref": "${{ steps.expected.outputs.commit }}",
+        "path": "release",
+        "persist-credentials": False,
+    }
+    build = step("reference-build", "Build the release commit in the reference build environment")
+    assert build["uses"] == "./head/.github/actions/reference-build"
+    assert build["with"] == {"source": "release", "outdir": "${{ runner.temp }}/reference-dist"}
+    compare = step("reference-build", CI_COMPARE_STEP)["run"]
+    assert compare.split("# End of the checks shared")[1].split()[-2:] == [
+        "check_folder",
+        '"$RUNNER_TEMP/reference-dist"',
+    ]
+    for item in job["steps"]:
+        assert "${{" not in item.get("run", "")
 
 
 def test_publish_job_uploads_only_the_verified_folder() -> None:
@@ -207,19 +327,83 @@ def test_build_and_publish_jobs_share_the_same_checks() -> None:
 
     build = step("build", BUILD_STEP)
     publish = step("publish", PUBLISH_STEP)
-    assert shared(build["run"]) == shared(publish["run"])
+    ci = step("reference-build", CI_COMPARE_STEP)
+    assert shared(build["run"]) == shared(publish["run"]) == shared(ci["run"])
+    assert set(build["env"]) == set(publish["env"]) == set(ci["env"])
     assert build["env"] == publish["env"]
 
 
 def test_nothing_under_dot_github_goes_into_the_source_archive() -> None:
     # hatchling reads each sdist `include` entry like a .gitignore line: an
     # entry without a slash matches a file or folder of that name at any depth.
-    root = WORKFLOW.parents[2]
-    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     include = set(config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"])
     assert all("/" not in entry and "*" not in entry for entry in include)
-    for path in (root / ".github").rglob("*"):
-        assert not include & set(path.relative_to(root).parts), path
+    paths = list(GITHUB.rglob("*"))
+    assert ACTION_DIR / "release-tools.txt" in paths  # the walk sees the new files
+    for path in paths:
+        assert not include & set(path.relative_to(ROOT).parts), path
+
+
+# --------------------------------------- expected-archives.txt (ci.yml) ---
+
+EXPECTED_TEXT = (ACTION_DIR / "expected-archives.txt").read_text(encoding="ascii")
+
+
+def run_read_expected(tmp_path: Path, text: str) -> tuple[int, str, dict[str, str]]:
+    work = tmp_path / "workspace"
+    work.mkdir()
+    expected = work / "expected-archives.txt"
+    expected.write_text(text, encoding="ascii", newline="\n")
+    output = tmp_path / "github_output"
+    output.write_text("", encoding="utf-8")
+    result = run_step(
+        "reference-build",
+        CI_READ_STEP,
+        {"EXPECTED_FILE": expected.as_posix()},
+        work,
+        {"GITHUB_OUTPUT": output.as_posix()},
+    )
+    values = dict(
+        line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines() if line
+    )
+    return result.returncode, result.stdout + result.stderr, values
+
+
+@needs_bash
+def test_the_expected_archives_file_is_read_exactly(tmp_path: Path) -> None:
+    code, log, values = run_read_expected(tmp_path, EXPECTED_TEXT)
+    assert code == 0, log
+    keys = dict(
+        line.split("=", 1) for line in EXPECTED_TEXT.splitlines() if line and line[0] != "#"
+    )
+    assert values == {
+        "commit": keys["commit"],
+        "wheel-name": f"reposentinel_scanner-{keys['version']}-py3-none-any.whl",
+        "sdist-name": f"reposentinel_scanner-{keys['version']}.tar.gz",
+        "wheel-sha256": keys["wheel-sha256"],
+        "sdist-sha256": keys["sdist-sha256"],
+    }
+    assert keys["commit"] == "6da5bd86167a4241b746b46534f0f27a5bafcc04"  # the 0.1.0 release
+
+
+@needs_bash
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("wheel-sha256=a6dc", "wheel-sha256=A6DC"),  # this file must be normalised already
+        ("commit=6da5bd86167a4241b746b46534f0f27a5bafcc04", "commit=6da5bd8"),
+        ("version=0.1.0", "version=v0.1.0"),
+        ("sdist-sha256=", "sdist-sha256=0\nsdist-sha256="),  # a key twice
+        ("sdist-sha256=", "# sdist-sha256="),  # a key missing
+    ],
+)
+def test_a_malformed_expected_archives_file_fails(tmp_path: Path, old: str, new: str) -> None:
+    assert EXPECTED_TEXT.count(old) == 1
+    code, log, values = run_read_expected(tmp_path, EXPECTED_TEXT.replace(old, new))
+    assert code != 0
+    assert "::error::" in log
+    assert values == {}
 
 
 # ------------------------------------------------------- inputs (D3) ---
@@ -343,19 +527,28 @@ def run_publish_check(tmp_path: Path, env: dict[str, str]) -> subprocess.Complet
     return run_step("publish", PUBLISH_STEP, env, tmp_path / "workspace", runner)
 
 
+def run_ci_check(tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    runner = {"RUNNER_TEMP": (tmp_path / "runner_temp").as_posix()}
+    return run_step("reference-build", CI_COMPARE_STEP, env, tmp_path / "workspace", runner)
+
+
 def source_folder(tmp_path: Path, job: str) -> Path:
     """Where each job's check reads the archives from (the folder is not created)."""
     (tmp_path / "workspace").mkdir(exist_ok=True)
-    if job == "build":
-        return tmp_path / "workspace" / "dist"
-    return tmp_path / "runner_temp" / "downloaded"
+    return {
+        "build": tmp_path / "workspace" / "dist",
+        "publish": tmp_path / "runner_temp" / "downloaded",
+        "reference-build": tmp_path / "runner_temp" / "reference-dist",
+    }[job]
 
 
 def run_check(job: str, tmp_path: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return (run_build_check if job == "build" else run_publish_check)(tmp_path, env)
+    runners = {"build": run_build_check, "publish": run_publish_check}
+    return runners.get(job, run_ci_check)(tmp_path, env)
 
 
-BOTH = pytest.mark.parametrize("job", ["build", "publish"])
+# The same checks in publish.yml (build and publish jobs) and in ci.yml.
+BOTH = pytest.mark.parametrize("job", ["build", "publish", "reference-build"])
 
 
 @needs_bash

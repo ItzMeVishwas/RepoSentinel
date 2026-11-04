@@ -1,0 +1,100 @@
+# The reference build of the RepoSentinel release archives.
+#
+# Used by publish.yml (job "build") and by ci.yml (job "reference-build"), so
+# both build in exactly the same environment:
+# * a GitHub-hosted Windows Server 2025 runner (the calling job sets
+#   runs-on: windows-2025; the check below refuses any other image),
+# * CPython 3.13.17 from python.org, whose zlib is classic zlib 1.3.1,
+# * Node.js 24.21.0 (the web interface comes from frontend/package-lock.json),
+# * release-tools.txt: pip, build and twine with every dependency, and
+#   build-backend.txt: hatchling with every dependency, each pinned to the
+#   exact files by SHA-256.
+# The isolated build environment of `python -m build` is installed only from
+# the files of build-backend.txt (no package index), so a new upstream
+# release cannot change the archives.
+#
+# The same build on the maintainer's Windows computer (PowerShell, in a clean
+# clone of the release commit, with python.org CPython 3.13.17 and
+# Node.js 24.21.0):
+#   py -3.13 -m venv $env:TEMP\rs-release
+#   $py = "$env:TEMP\rs-release\Scripts\python.exe"
+#   & $py -m pip install --require-hashes --only-binary :all: -r .github\actions\reference-build\release-tools.txt
+#   & $py -m pip download --require-hashes --only-binary :all: -d $env:TEMP\rs-wheels -r .github\actions\reference-build\build-backend.txt
+#   $env:PIP_NO_INDEX = "1"; $env:PIP_FIND_LINKS = "$env:TEMP\rs-wheels"
+#   & $py scripts\build_release.py --outdir $env:TEMP\rs-dist
+#
+# This action uploads nothing and needs no permissions.
+
+name: Reference build of the release archives
+description: Builds the wheel and the source archive in the pinned reference build environment.
+
+inputs:
+  source:
+    description: Folder that holds the checked-out commit to build
+    required: true
+  outdir:
+    description: New or empty folder for the two archives
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.13.17"
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: "24.21.0"
+    - name: Check the reference build environment
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-}"
+        if [ "${RUNNER_OS:-}" != "Windows" ] || [ "${ImageOS:-}" != "win25" ]; then
+          echo "::error::The reference build needs the windows-2025 runner image."
+          exit 1
+        fi
+        python -VV
+        python -c '
+        import sys, zlib
+        print("zlib", zlib.ZLIB_RUNTIME_VERSION)
+        if sys.version_info[:3] != (3, 13, 17) or zlib.ZLIB_RUNTIME_VERSION != "1.3.1":
+            sys.exit("error: the reference build needs CPython 3.13.17 with zlib 1.3.1")
+        '
+        if [ "$(node --version)" != "v24.21.0" ]; then
+          echo "::error::The reference build needs Node.js 24.21.0."
+          exit 1
+        fi
+        echo "Node.js $(node --version), npm $(npm --version)"
+    - name: Install the pinned release tools
+      shell: bash
+      env:
+        PINS: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        python -m pip install --disable-pip-version-check --require-hashes --only-binary :all: -r "$PINS/release-tools.txt"
+        python -m pip check
+        python -m pip --version
+    - name: Download the pinned build backend
+      shell: bash
+      env:
+        PINS: ${{ github.action_path }}
+        WHEELS: ${{ runner.temp }}/build-backend-wheels
+      run: |
+        set -euo pipefail
+        python -m pip download --disable-pip-version-check --require-hashes --only-binary :all: --dest "$WHEELS" -r "$PINS/build-backend.txt"
+        ls "$WHEELS"
+    - name: Build the release archives
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+        OUTDIR: ${{ inputs.outdir }}
+        # The isolated build environment comes only from the verified files.
+        PIP_NO_INDEX: "1"
+        PIP_FIND_LINKS: ${{ runner.temp }}/build-backend-wheels
+      run: |
+        set -euo pipefail
+        cd "$SOURCE"
+        python scripts/build_release.py --outdir "$OUTDIR"

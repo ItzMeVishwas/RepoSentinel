@@ -1,0 +1,8 @@
+# The release commit and the SHA-256 of the two archives that the reference
+# build (action.yml) makes from it. The ci.yml job "reference-build" rebuilds
+# this commit on GitHub's Windows runner for every change and fails unless it
+# gets exactly these two files with exactly these SHA-256 values.
+commit=6da5bd86167a4241b746b46534f0f27a5bafcc04
+version=0.1.0
+wheel-sha256=a6dc079826e468bb89e8d9221f276c5e5b742833e9ac7ca9a98fed4e9287589d
+sdist-sha256=218b4ce37180cd29e71e6613cfd7b3f2e709558e8b094e647b64bfe228a644af
