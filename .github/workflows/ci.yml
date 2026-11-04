@@ -100,6 +100,13 @@ jobs:
           REPOSENTINEL_REQUIRE_SYMLINK_TESTS: ${{ runner.os != 'Windows' && '1' || '0' }}
         run: python -m pytest -ra
 
+      # The scripts of publish.yml, run with bash as on the Linux and Windows
+      # runners that publish.yml uses. These tests are in .github/tests, not
+      # tests/, so that they are not part of the release archives.
+      - name: Test the publish workflow
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && runner.os != 'macOS' }}
+        run: python -m pytest -ra .github/tests
+
       - name: Check the generated rules reference
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/generate_rules_doc.py --check

@@ -2,27 +2,46 @@
 #
 # How it is used:
 # * Only started by hand: Actions > Publish > Run workflow, on `main` or on a
-#   release tag `v*`. Choose the index (TestPyPI first) and enter the SHA-256
-#   of the wheel and of the source archive that the maintainer built and
-#   verified locally from the same commit.
-# * The build job rebuilds both archives from that commit, checks them, and
-#   stops unless both hashes equal the expected values. Only then does the
-#   publish job upload exactly those files.
+#   release tag `v*`. Choose the index (TestPyPI first), and enter the version
+#   and the SHA-256 of the wheel and of the source archive that the maintainer
+#   built and verified locally from the same commit, in the reference build
+#   environment below. Upper-case hashes and surrounding spaces are accepted.
+#
+# Reference build environment (the SHA-256 of the archives depends on it):
+# * Windows x64, CPython 3.13.17 from python.org (classic zlib 1.3.1),
+#   Node.js 24.21.0, build 1.3.0 and hatchling 1.33.0 (pyproject.toml).
+# * Archives built elsewhere have the same files but different bytes: a wheel
+#   built on Linux or macOS records a different operating system in every
+#   entry (Python's zipfile), and CPython 3.14 on Windows compresses with
+#   zlib-ng, whose output differs. The build job therefore runs on a pinned
+#   Windows image with exactly these versions, and stops if they differ.
+#
+# Jobs:
+# * inputs: checks and normalises the inputs (no checkout, no permissions).
+# * build: rebuilds both archives from the commit, checks them, and stops
+#   unless dist/ holds exactly the two expected files with the expected
+#   SHA-256.
+# * publish: on a fresh runner, where no project or build code runs, copies
+#   exactly those two files into a new folder, checks their names and SHA-256
+#   again, and uploads only that folder.
 #
 # Security choices:
 # * Trusted publishing (OpenID Connect): no PyPI token or other secret is
 #   stored anywhere. PyPI accepts the upload only from this repository, this
 #   workflow file and the matching GitHub environment ("testpypi" or
-#   "pypi"), as registered by the maintainer on (Test)PyPI. Give each
-#   environment a required reviewer so every upload needs an approval.
+#   "pypi"), as registered by the maintainer on (Test)PyPI. The environment
+#   name must be part of both registrations, and the "pypi" environment needs
+#   a required reviewer, so every PyPI upload needs an approval.
 # * id-token: write is granted to the publish job only, which runs no project
-#   code: it downloads the verified archives and uploads them. The build job
-#   can only read repository contents, and actions/checkout does not store
-#   the token in .git/config (persist-credentials: false).
+#   code. The inputs job has no permissions; the build job can only read
+#   repository contents, and actions/checkout does not store the token in
+#   .git/config (persist-credentials: false).
 # * Workflow inputs reach the shell through environment variables, never as
-#   expressions inside a script.
+#   expressions inside a script, and are never printed before they are
+#   checked (they could contain workflow commands).
 # * Actions are pinned to full commit SHAs, like in ci.yml.
 # * npm runs with --ignore-scripts (scripts/build_release.py).
+# * Tests: .github/tests/test_publish_workflow.py runs the scripts below.
 
 name: Publish
 
@@ -34,6 +53,10 @@ on:
         type: choice
         options: [testpypi, pypi]
         default: testpypi
+      version:
+        description: "Version to upload, as in pyproject.toml (for example 0.1.0)"
+        type: string
+        required: true
       wheel-sha256:
         description: "Expected SHA-256 of reposentinel_scanner-<version>-py3-none-any.whl"
         type: string
@@ -51,61 +74,151 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  inputs:
+    name: Check the inputs
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      wheel-name: ${{ steps.check.outputs.wheel-name }}
+      sdist-name: ${{ steps.check.outputs.sdist-name }}
+      wheel-sha256: ${{ steps.check.outputs.wheel-sha256 }}
+      sdist-sha256: ${{ steps.check.outputs.sdist-sha256 }}
+    steps:
+      - name: Check and normalise the version and the SHA-256 values
+        id: check
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+          RAW_WHEEL: ${{ inputs.wheel-sha256 }}
+          RAW_SDIST: ${{ inputs.sdist-sha256 }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          # Removes leading and trailing white space (spaces, tabs, newlines).
+          trim() {
+            local value=$1
+            value=${value#"${value%%[![:space:]]*}"}
+            printf '%s' "${value%"${value##*[![:space:]]}"}"
+          }
+          # Prints the lower-case SHA-256, or fails without printing the input.
+          sha256() {
+            local value
+            value=$(trim "$2")
+            value=${value,,}
+            if [[ ! $value =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::$1 must be a SHA-256: 64 hexadecimal characters." >&2
+              return 1
+            fi
+            printf '%s' "$value"
+          }
+          version=$(trim "$RAW_VERSION")
+          if [[ ! $version =~ ^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$ ]]; then
+            echo "::error::The version must be a normalised version such as 0.1.0." >&2
+            exit 1
+          fi
+          wheel=$(sha256 "The wheel's SHA-256" "$RAW_WHEEL")
+          sdist=$(sha256 "The source archive's SHA-256" "$RAW_SDIST")
+          {
+            echo "wheel-name=reposentinel_scanner-$version-py3-none-any.whl"
+            echo "sdist-name=reposentinel_scanner-$version.tar.gz"
+            echo "wheel-sha256=$wheel"
+            echo "sdist-sha256=$sdist"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+          echo "Expected SHA-256 of the wheel:          $wheel"
+          echo "Expected SHA-256 of the source archive: $sdist"
+
   build:
     name: Build the archives and compare their SHA-256
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    needs: inputs
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
-
+          python-version: "3.13.17"
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
-
+          node-version: "24.21.0"
+      - name: Check the reference build environment
+        run: |
+          python -VV
+          node --version
+          python -c '
+          import sys, zlib
+          print("zlib", zlib.ZLIB_RUNTIME_VERSION)
+          if sys.version_info[:3] != (3, 13, 17) or zlib.ZLIB_RUNTIME_VERSION != "1.3.1":
+              sys.exit("error: the reference build needs CPython 3.13.17 with zlib 1.3.1")
+          '
+          if [ "$(node --version)" != "v24.21.0" ]; then
+            echo "::error::The reference build needs Node.js 24.21.0."
+            exit 1
+          fi
       - name: Install the release tools
         run: python -m pip install "build==1.3.0" "twine==7.0.0"
-
       - name: Build the release archives
         run: python scripts/build_release.py --outdir dist
-
       - name: Check the archives
         run: |
           python -m twine check --strict dist/*
           python scripts/check_dist.py dist
-
-      - name: Compare the SHA-256 with the expected values
+      - name: Check that dist/ holds exactly the two expected archives
         env:
-          EXPECTED_WHEEL: ${{ inputs.wheel-sha256 }}
-          EXPECTED_SDIST: ${{ inputs.sdist-sha256 }}
+          WHEEL_NAME: ${{ needs.inputs.outputs.wheel-name }}
+          SDIST_NAME: ${{ needs.inputs.outputs.sdist-name }}
+          EXPECTED_WHEEL: ${{ needs.inputs.outputs.wheel-sha256 }}
+          EXPECTED_SDIST: ${{ needs.inputs.outputs.sdist-sha256 }}
         run: |
           set -euo pipefail
-          sha256sum dist/*
-          wheel=$(sha256sum dist/reposentinel_scanner-*-py3-none-any.whl | cut -d " " -f 1)
-          sdist=$(sha256sum dist/reposentinel_scanner-*.tar.gz | cut -d " " -f 1)
-          status=0
-          if [ "$wheel" != "$EXPECTED_WHEEL" ]; then
-            echo "::error::The wheel's SHA-256 is not the expected value."
-            status=1
-          fi
-          if [ "$sdist" != "$EXPECTED_SDIST" ]; then
-            echo "::error::The source archive's SHA-256 is not the expected value."
-            status=1
-          fi
-          if [ "$status" -ne 0 ]; then
-            echo "Nothing will be uploaded. Rebuild locally from this commit and compare."
-          fi
-          exit "$status"
-
+          export LC_ALL=C
+          shopt -s dotglob nullglob
+          fail() {
+            echo "::error::$1"
+            echo "Nothing will be uploaded."
+            exit 1
+          }
+          check_expected_values() {
+            [[ $EXPECTED_WHEEL =~ ^[0-9a-f]{64}$ && $EXPECTED_SDIST =~ ^[0-9a-f]{64}$ ]] ||
+              fail "The expected SHA-256 values are not 64 lower-case hexadecimal characters."
+            [[ $WHEEL_NAME =~ ^reposentinel_scanner-[0-9a-z.]+-py3-none-any\.whl$ &&
+              $SDIST_NAME =~ ^reposentinel_scanner-[0-9a-z.]+\.tar\.gz$ ]] ||
+              fail "The expected file names are not valid."
+          }
+          # Fails unless folder $1 holds exactly the two expected regular files
+          # with the expected SHA-256. The names are compared as listed on disk,
+          # so this is exact on Windows too (whose file names ignore case).
+          check_folder() {
+            local entries=("$1"/*) name actual
+            [ "${#entries[@]}" -eq 2 ] ||
+              fail "$1 must hold exactly the two archives; it holds ${#entries[@]} entries."
+            [ "$(printf '%s\n' "${entries[@]##*/}" | sort)" = \
+              "$(printf '%s\n' "$WHEEL_NAME" "$SDIST_NAME" | sort)" ] ||
+              fail "$1 does not hold exactly $WHEEL_NAME and $SDIST_NAME."
+            for name in "$WHEEL_NAME" "$SDIST_NAME"; do
+              [ -f "$1/$name" ] && [ ! -L "$1/$name" ] ||
+                fail "$name is missing from $1 or is not a regular file."
+            done
+            sha256sum -- "$1/$WHEEL_NAME" "$1/$SDIST_NAME"
+            actual=$(sha256sum -- "$1/$WHEEL_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_WHEEL" ] ||
+              fail "The wheel's SHA-256 is not the expected value."
+            actual=$(sha256sum -- "$1/$SDIST_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_SDIST" ] ||
+              fail "The source archive's SHA-256 is not the expected value."
+          }
+          # End of the checks shared with the publish job.
+          check_expected_values
+          check_folder dist
       - name: Keep the verified archives for the publish job
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -116,8 +229,8 @@ jobs:
 
   publish:
     name: Upload to ${{ inputs.index }}
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [inputs, build]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
       name: ${{ inputs.index }}
@@ -125,18 +238,73 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - name: Download the verified archives
+      - name: Download the archives from the build job
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-archives
-          path: dist/
-
+          path: ${{ runner.temp }}/downloaded
+      - name: Copy exactly the two verified archives into a new folder and check them again
+        env:
+          WHEEL_NAME: ${{ needs.inputs.outputs.wheel-name }}
+          SDIST_NAME: ${{ needs.inputs.outputs.sdist-name }}
+          EXPECTED_WHEEL: ${{ needs.inputs.outputs.wheel-sha256 }}
+          EXPECTED_SDIST: ${{ needs.inputs.outputs.sdist-sha256 }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          shopt -s dotglob nullglob
+          fail() {
+            echo "::error::$1"
+            echo "Nothing will be uploaded."
+            exit 1
+          }
+          check_expected_values() {
+            [[ $EXPECTED_WHEEL =~ ^[0-9a-f]{64}$ && $EXPECTED_SDIST =~ ^[0-9a-f]{64}$ ]] ||
+              fail "The expected SHA-256 values are not 64 lower-case hexadecimal characters."
+            [[ $WHEEL_NAME =~ ^reposentinel_scanner-[0-9a-z.]+-py3-none-any\.whl$ &&
+              $SDIST_NAME =~ ^reposentinel_scanner-[0-9a-z.]+\.tar\.gz$ ]] ||
+              fail "The expected file names are not valid."
+          }
+          # Fails unless folder $1 holds exactly the two expected regular files
+          # with the expected SHA-256. The names are compared as listed on disk,
+          # so this is exact on Windows too (whose file names ignore case).
+          check_folder() {
+            local entries=("$1"/*) name actual
+            [ "${#entries[@]}" -eq 2 ] ||
+              fail "$1 must hold exactly the two archives; it holds ${#entries[@]} entries."
+            [ "$(printf '%s\n' "${entries[@]##*/}" | sort)" = \
+              "$(printf '%s\n' "$WHEEL_NAME" "$SDIST_NAME" | sort)" ] ||
+              fail "$1 does not hold exactly $WHEEL_NAME and $SDIST_NAME."
+            for name in "$WHEEL_NAME" "$SDIST_NAME"; do
+              [ -f "$1/$name" ] && [ ! -L "$1/$name" ] ||
+                fail "$name is missing from $1 or is not a regular file."
+            done
+            sha256sum -- "$1/$WHEEL_NAME" "$1/$SDIST_NAME"
+            actual=$(sha256sum -- "$1/$WHEEL_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_WHEEL" ] ||
+              fail "The wheel's SHA-256 is not the expected value."
+            actual=$(sha256sum -- "$1/$SDIST_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_SDIST" ] ||
+              fail "The source archive's SHA-256 is not the expected value."
+          }
+          # End of the checks shared with the build job.
+          check_expected_values
+          check_folder "$RUNNER_TEMP/downloaded"
+          # A new folder (mkdir fails if it exists) that receives only the two
+          # expected files; the copies are checked again and made read-only.
+          # Only this folder is uploaded, and no other code runs before that.
+          mkdir -- verified-dist
+          cp -- "$RUNNER_TEMP/downloaded/$WHEEL_NAME" "$RUNNER_TEMP/downloaded/$SDIST_NAME" verified-dist/
+          chmod a-w -- "verified-dist/$WHEEL_NAME" "verified-dist/$SDIST_NAME"
+          check_folder verified-dist
       - name: Upload to TestPyPI
         if: inputs.index == 'testpypi'
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           repository-url: https://test.pypi.org/legacy/
-
+          packages-dir: verified-dist/
       - name: Upload to PyPI
         if: inputs.index == 'pypi'
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: verified-dist/
