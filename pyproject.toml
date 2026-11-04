@@ -5,7 +5,10 @@ requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "reposentinel"
+# The distribution name (pip install reposentinel-scanner). PyPI refuses
+# "reposentinel" as too similar to an existing project; the import package and
+# the command keep the short name "reposentinel".
+name = "reposentinel-scanner"
 dynamic = ["version"]  # from src/reposentinel/__init__.py (see [tool.hatch.version])
 description = "Local, offline security audit for software repositories: risky files, hard-coded credential patterns, and unsafe GitHub Actions workflows."
 readme = "README.md"

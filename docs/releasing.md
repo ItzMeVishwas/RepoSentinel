@@ -5,9 +5,17 @@ release. Nothing has been published yet.
 
 ## What a release contains
 
-* `reposentinel-X.Y.Z.tar.gz`, the source distribution. It includes the
-  **built** web interface, so building a wheel from it does not need Node.js.
-* `reposentinel-X.Y.Z-py3-none-any.whl`, the wheel (pure Python, any OS).
+* `reposentinel_scanner-X.Y.Z.tar.gz`, the source distribution. It includes
+  the **built** web interface, so building a wheel from it does not need
+  Node.js.
+* `reposentinel_scanner-X.Y.Z-py3-none-any.whl`, the wheel (pure Python, any
+  OS).
+
+The distribution is named `reposentinel-scanner` (`pip install
+reposentinel-scanner`; file names use the normalised form
+`reposentinel_scanner`). PyPI refuses `reposentinel` as too similar to an
+existing project. The import package and the command are still
+`reposentinel`, and `scripts/check_dist.py` checks all three names.
 
 The web interface is built from `frontend/` with exact dependency versions
 from `frontend/package-lock.json`. The build output
@@ -46,7 +54,7 @@ from a working folder with local state.
 
 ```bash
 python -m venv /tmp/rs-wheel
-/tmp/rs-wheel/bin/python -m pip install dist/reposentinel-*.whl
+/tmp/rs-wheel/bin/python -m pip install dist/reposentinel_scanner-*.whl
 cd /tmp                                   # outside the source folder
 /tmp/rs-wheel/bin/reposentinel --version
 /tmp/rs-wheel/bin/python /path/to/reposentinel/scripts/smoke_installed.py
@@ -78,8 +86,8 @@ PYTHON=/tmp/rs-wheel/bin/python npm run e2e
 4. Tag the release (`vX.Y.Z`) and create a GitHub release with the two
    archives attached.
 
-Publishing to PyPI is a separate decision; it would use a trusted-publishing
-workflow rather than a stored token.
+Publishing to PyPI (as `reposentinel-scanner`) is a separate decision; it
+would use a trusted-publishing workflow rather than a stored token.
 
 ## Repository settings
 

@@ -61,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: the UI build did not produce {STATIC / 'index.html'}", file=sys.stderr)
         return 1
     run([sys.executable, "-m", "build", "--outdir", str(outdir)], PROJECT)
-    archives = [str(path) for path in sorted(outdir.glob("reposentinel-*"))]
+    # File names use the normalised distribution name (reposentinel-scanner).
+    archives = [str(path) for path in sorted(outdir.glob("reposentinel_scanner-*"))]
     run([sys.executable, "-m", "twine", "check", "--strict", *archives], PROJECT)
     run([sys.executable, str(PROJECT / "scripts" / "check_dist.py"), str(outdir)], PROJECT)
     print(f"Release archives in {outdir}")

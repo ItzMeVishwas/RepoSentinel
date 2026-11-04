@@ -302,7 +302,8 @@ def test_scan_defaults_to_the_current_directory(
 def test_package_metadata_version_matches_the_code() -> None:
     import importlib.metadata
 
-    assert importlib.metadata.version("reposentinel") == __version__
+    # The distribution is "reposentinel-scanner"; the import package is "reposentinel".
+    assert importlib.metadata.version("reposentinel-scanner") == __version__
 
 
 def test_an_interrupted_scan_says_so_and_writes_no_report(
