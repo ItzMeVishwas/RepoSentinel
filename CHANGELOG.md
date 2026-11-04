@@ -2,12 +2,11 @@
 
 All notable changes to RepoSentinel are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-semantic versioning once a release is published.
+semantic versioning.
 
-## [Unreleased] - 0.1.0 (first public release, not yet published)
+## [0.1.0] - 2026-11-04
 
-Nothing has been released yet. This entry describes the state prepared for
-the first release.
+The first public release (alpha).
 
 ### Command line
 
