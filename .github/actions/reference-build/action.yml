@@ -52,10 +52,16 @@ runs:
       run: |
         set -euo pipefail
         echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-}"
-        if [ "${RUNNER_OS:-}" != "Windows" ] || [ "${ImageOS:-}" != "win25" ]; then
-          echo "::error::The reference build needs the windows-2025 runner image."
-          exit 1
-        fi
+        # The runs-on label windows-2025 gives a Windows Server 2025 image
+        # (ImageOS win25, or win25-vs2026 with Visual Studio 2026, which this
+        # build does not use: nothing is compiled).
+        case "${RUNNER_OS:-}/${ImageOS:-}" in
+          Windows/win25 | Windows/win25-*) ;;
+          *)
+            echo "::error::The reference build needs a Windows Server 2025 runner image."
+            exit 1
+            ;;
+        esac
         python -VV
         python -c '
         import sys, zlib

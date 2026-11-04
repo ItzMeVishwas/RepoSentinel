@@ -439,12 +439,28 @@ jobs:
           echo "Expected SHA-256 of the wheel:          $wheel"
           echo "Expected SHA-256 of the source archive: $sdist"
 
+      # The commit is written out here, not taken from a step output, so that
+      # nothing computed while the workflow runs decides which code is
+      # checked out and built. The next step checks that it is the commit of
+      # expected-archives.txt.
       - name: Check out the release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.expected.outputs.commit }}
+          ref: 6da5bd86167a4241b746b46534f0f27a5bafcc04
           path: release
           persist-credentials: false
+
+      - name: Check that it is the commit of expected-archives.txt
+        env:
+          EXPECTED_COMMIT: ${{ steps.expected.outputs.commit }}
+        run: |
+          set -euo pipefail
+          actual=$(git -C release rev-parse HEAD)
+          echo "Checked out $actual"
+          if [ "$actual" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::ci.yml and expected-archives.txt name different release commits."
+            exit 1
+          fi
 
       - name: Build the release commit in the reference build environment
         uses: ./head/.github/actions/reference-build

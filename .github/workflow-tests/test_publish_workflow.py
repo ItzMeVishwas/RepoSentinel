@@ -43,6 +43,10 @@ CI_TEXT = (GITHUB / "workflows" / "ci.yml").read_text(encoding="utf-8")
 CI: dict[Any, Any] = yaml.safe_load(CI_TEXT)
 CI_JOBS: dict[str, Any] = CI["jobs"]
 BACKSLASH = chr(92)
+EXPECTED_TEXT = (ACTION_DIR / "expected-archives.txt").read_text(encoding="ascii")
+EXPECTED = dict(
+    line.split("=", 1) for line in EXPECTED_TEXT.splitlines() if line and not line.startswith("#")
+)
 
 INPUTS_STEP = "Check and normalise the version and the SHA-256 values"
 BUILD_STEP = "Check that dist/ holds exactly the two expected archives"
@@ -180,7 +184,7 @@ def test_the_reference_build_environment_is_pinned() -> None:
     assert steps["Set up Python"]["with"]["python-version"] == "3.13.17"
     assert steps["Set up Node.js"]["with"]["node-version"] == "24.21.0"
     check = steps["Check the reference build environment"]["run"]
-    for required in ('"win25"', "(3, 13, 17)", '"1.3.1"', '"v24.21.0"'):
+    for required in ("(3, 13, 17)", '"1.3.1"', '"v24.21.0"'):
         assert required in check
     install = steps["Install the pinned release tools"]["run"]
     assert '--require-hashes --only-binary :all: -r "$PINS/release-tools.txt"' in install
@@ -255,16 +259,22 @@ def test_the_ci_reference_build_cannot_publish() -> None:
         "Check out this commit (it defines the reference build)",
         CI_READ_STEP,
         "Check out the release commit",
+        "Check that it is the commit of expected-archives.txt",
         "Build the release commit in the reference build environment",
         CI_COMPARE_STEP,
     ]
     head, release = (s for s in job["steps"] if "checkout" in str(s.get("uses", "")))
     assert head["with"] == {"path": "head", "persist-credentials": False}
+    # A fixed commit (no step output decides what is built), which a later
+    # step compares with expected-archives.txt.
     assert release["with"] == {
-        "ref": "${{ steps.expected.outputs.commit }}",
+        "ref": EXPECTED["commit"],
         "path": "release",
         "persist-credentials": False,
     }
+    same = step("reference-build", "Check that it is the commit of expected-archives.txt")
+    assert same["env"] == {"EXPECTED_COMMIT": "${{ steps.expected.outputs.commit }}"}
+    assert 'if [ "$actual" != "$EXPECTED_COMMIT" ]; then' in same["run"]
     build = step("reference-build", "Build the release commit in the reference build environment")
     assert build["uses"] == "./head/.github/actions/reference-build"
     assert build["with"] == {"source": "release", "outdir": "${{ runner.temp }}/reference-dist"}
@@ -345,9 +355,84 @@ def test_nothing_under_dot_github_goes_into_the_source_archive() -> None:
         assert not include & set(path.relative_to(ROOT).parts), path
 
 
-# --------------------------------------- expected-archives.txt (ci.yml) ---
+# ------------------------------------------- runner image check (D2) ---
 
-EXPECTED_TEXT = (ACTION_DIR / "expected-archives.txt").read_text(encoding="ascii")
+IMAGE_CHECK = "Check the reference build environment"
+
+
+def run_image_check(tmp_path: Path, runner_os: str | None, image_os: str | None) -> int:
+    """Run the image part of the action's environment check (up to `esac`)."""
+    script = next(s for s in ACTION["runs"]["steps"] if s["name"] == IMAGE_CHECK)["run"]
+    assert script.count("esac") == 1
+    path = tmp_path / "image-check.sh"
+    path.write_text(script.split("esac")[0] + "esac\n", encoding="utf-8", newline="\n")
+    environment = {k: v for k, v in os.environ.items() if k not in ("RUNNER_OS", "ImageOS")}
+    if runner_os is not None:
+        environment["RUNNER_OS"] = runner_os
+    if image_os is not None:
+        environment["ImageOS"] = image_os
+    assert BASH is not None
+    result = subprocess.run(  # noqa: S603 - fixed arguments, no shell
+        [BASH, "--noprofile", "--norc", "-eo", "pipefail", path.as_posix()],
+        env=environment,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+    if result.returncode:
+        assert "needs a Windows Server 2025 runner image" in result.stdout
+    return result.returncode
+
+
+@needs_bash
+@pytest.mark.parametrize(
+    "image_os",
+    [
+        "win25",  # windows-2025 (Windows Server 2025)
+        "win25-vs2026",  # what windows-2025 reported on 2026-11-04 (image 20261030.294.1)
+    ],
+)
+def test_windows_server_2025_images_are_accepted(tmp_path: Path, image_os: str) -> None:
+    assert run_image_check(tmp_path, "Windows", image_os) == 0
+
+
+@needs_bash
+@pytest.mark.parametrize(
+    ("runner_os", "image_os"),
+    [
+        ("Windows", "win22"),  # windows-2022
+        ("Windows", "win19"),
+        ("Windows", "win11-arm"),  # windows-11-arm
+        ("Windows", "win250"),
+        ("Windows", "win25x"),
+        ("Windows", "xwin25"),
+        ("Windows", "win25 "),
+        ("Windows", ""),
+        ("Windows", None),  # not set: not a GitHub-hosted runner image
+        ("Linux", "ubuntu24"),
+        ("Linux", "win25"),  # a Linux machine claiming a Windows image
+        ("macOS", "macos15"),
+        ("windows", "win25"),  # RUNNER_OS is spelled exactly "Windows"
+        ("", "win25"),
+        (None, "win25-vs2026"),
+    ],
+)
+def test_other_runner_images_are_rejected(
+    tmp_path: Path, runner_os: str | None, image_os: str | None
+) -> None:
+    assert run_image_check(tmp_path, runner_os, image_os) != 0
+
+
+def test_the_image_check_comes_before_the_build() -> None:
+    names = [s["name"] for s in ACTION["runs"]["steps"]]
+    assert names.index(IMAGE_CHECK) < names.index("Build the release archives")
+    check = next(s for s in ACTION["runs"]["steps"] if s["name"] == IMAGE_CHECK)["run"]
+    assert 'case "${RUNNER_OS:-}/${ImageOS:-}" in' in check
+    assert "Windows/win25 | Windows/win25-*) ;;" in check
+
+
+# --------------------------------------- expected-archives.txt (ci.yml) ---
 
 
 def run_read_expected(tmp_path: Path, text: str) -> tuple[int, str, dict[str, str]]:
