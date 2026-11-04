@@ -100,6 +100,14 @@ jobs:
           REPOSENTINEL_REQUIRE_SYMLINK_TESTS: ${{ runner.os != 'Windows' && '1' || '0' }}
         run: python -m pytest -ra
 
+      # The scripts of publish.yml, run with bash as on the Linux and Windows
+      # runners that publish.yml uses. These tests are in
+      # .github/workflow-tests, so that they are not part of the release
+      # archives.
+      - name: Test the publish workflow
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && runner.os != 'macOS' }}
+        run: python -m pytest -ra .github/workflow-tests
+
       - name: Check the generated rules reference
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/generate_rules_doc.py --check
@@ -373,3 +381,140 @@ jobs:
         # test helpers. The suite treats every warning as an error, so only
         # deprecation warnings are relaxed here (see pyproject.toml).
         run: python -m pytest -ra -W "ignore::DeprecationWarning"
+
+  # Rebuilds the release commit in the reference build environment of
+  # publish.yml (the same action) and fails unless it gives exactly the two
+  # archives and SHA-256 values in expected-archives.txt. This shows, for
+  # every change, that GitHub's Windows runner still reproduces the archives
+  # the maintainer verified. It cannot publish: it has only the read-only
+  # token, uses no secrets, no environment and no OpenID Connect token, and
+  # uploads nothing.
+  reference-build:
+    name: Reference build of the release archives (Windows, SHA-256)
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out this commit (it defines the reference build)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          persist-credentials: false
+
+      - name: Read the release commit and the expected SHA-256
+        id: expected
+        env:
+          EXPECTED_FILE: head/.github/actions/reference-build/expected-archives.txt
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          # Prints the value of key $1; the key must appear exactly once.
+          value() {
+            [ "$(grep -c "^$1=" "$EXPECTED_FILE")" -eq 1 ] ||
+              { echo "::error::$1 must appear exactly once in $EXPECTED_FILE." >&2; return 1; }
+            sed -n "s/^$1=//p" "$EXPECTED_FILE"
+          }
+          commit=$(value commit)
+          version=$(value version)
+          wheel=$(value wheel-sha256)
+          sdist=$(value sdist-sha256)
+          [[ $commit =~ ^[0-9a-f]{40}$ ]] ||
+            { echo "::error::commit must be a full commit SHA."; exit 1; }
+          [[ $version =~ ^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$ ]] ||
+            { echo "::error::version must be a normalised version."; exit 1; }
+          [[ $wheel =~ ^[0-9a-f]{64}$ && $sdist =~ ^[0-9a-f]{64}$ ]] ||
+            { echo "::error::The SHA-256 values must be 64 lower-case hexadecimal characters."; exit 1; }
+          {
+            echo "commit=$commit"
+            echo "wheel-name=reposentinel_scanner-$version-py3-none-any.whl"
+            echo "sdist-name=reposentinel_scanner-$version.tar.gz"
+            echo "wheel-sha256=$wheel"
+            echo "sdist-sha256=$sdist"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release commit $commit, version $version"
+          echo "Expected SHA-256 of the wheel:          $wheel"
+          echo "Expected SHA-256 of the source archive: $sdist"
+
+      # The commit is written out here, not taken from a step output, so that
+      # nothing computed while the workflow runs decides which code is
+      # checked out and built. The next step checks that it is the commit of
+      # expected-archives.txt.
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 6da5bd86167a4241b746b46534f0f27a5bafcc04
+          path: release
+          persist-credentials: false
+
+      - name: Check that it is the commit of expected-archives.txt
+        env:
+          EXPECTED_COMMIT: ${{ steps.expected.outputs.commit }}
+        run: |
+          set -euo pipefail
+          actual=$(git -C release rev-parse HEAD)
+          echo "Checked out $actual"
+          if [ "$actual" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::ci.yml and expected-archives.txt name different release commits."
+            exit 1
+          fi
+
+      - name: Build the release commit in the reference build environment
+        uses: ./head/.github/actions/reference-build
+        with:
+          source: release
+          outdir: ${{ runner.temp }}/reference-dist
+
+      - name: Compare the archives with the expected SHA-256
+        env:
+          WHEEL_NAME: ${{ steps.expected.outputs.wheel-name }}
+          SDIST_NAME: ${{ steps.expected.outputs.sdist-name }}
+          EXPECTED_WHEEL: ${{ steps.expected.outputs.wheel-sha256 }}
+          EXPECTED_SDIST: ${{ steps.expected.outputs.sdist-sha256 }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          shopt -s dotglob nullglob
+          fail() {
+            echo "::error::$1"
+            echo "Nothing will be uploaded."
+            exit 1
+          }
+          check_expected_values() {
+            [[ $EXPECTED_WHEEL =~ ^[0-9a-f]{64}$ && $EXPECTED_SDIST =~ ^[0-9a-f]{64}$ ]] ||
+              fail "The expected SHA-256 values are not 64 lower-case hexadecimal characters."
+            [[ $WHEEL_NAME =~ ^reposentinel_scanner-[0-9a-z.]+-py3-none-any\.whl$ &&
+              $SDIST_NAME =~ ^reposentinel_scanner-[0-9a-z.]+\.tar\.gz$ ]] ||
+              fail "The expected file names are not valid."
+          }
+          # Fails unless folder $1 holds exactly the two expected regular files
+          # with the expected SHA-256. The names are compared as listed on disk,
+          # so this is exact on Windows too (whose file names ignore case).
+          check_folder() {
+            local entries=("$1"/*) name actual
+            [ "${#entries[@]}" -eq 2 ] ||
+              fail "$1 must hold exactly the two archives; it holds ${#entries[@]} entries."
+            [ "$(printf '%s\n' "${entries[@]##*/}" | sort)" = \
+              "$(printf '%s\n' "$WHEEL_NAME" "$SDIST_NAME" | sort)" ] ||
+              fail "$1 does not hold exactly $WHEEL_NAME and $SDIST_NAME."
+            for name in "$WHEEL_NAME" "$SDIST_NAME"; do
+              [ -f "$1/$name" ] && [ ! -L "$1/$name" ] ||
+                fail "$name is missing from $1 or is not a regular file."
+            done
+            sha256sum -- "$1/$WHEEL_NAME" "$1/$SDIST_NAME"
+            # The file is read from standard input, so the output holds no file
+            # name: for a name with a backslash (RUNNER_TEMP on Windows),
+            # sha256sum would escape the line and put a backslash before the hash.
+            actual=$(sha256sum < "$1/$WHEEL_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_WHEEL" ] ||
+              fail "The wheel's SHA-256 is not the expected value."
+            actual=$(sha256sum < "$1/$SDIST_NAME" | cut -d " " -f 1)
+            [ "$actual" = "$EXPECTED_SDIST" ] ||
+              fail "The source archive's SHA-256 is not the expected value."
+          }
+          # End of the checks shared with the publish workflow.
+          check_expected_values
+          check_folder "$RUNNER_TEMP/reference-dist"
