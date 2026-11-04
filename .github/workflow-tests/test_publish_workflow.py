@@ -1,9 +1,11 @@
 # ruff: noqa: S101 - plain asserts, as in tests/ (see pyproject.toml)
 """Tests for .github/workflows/publish.yml (the trusted-publishing workflow).
 
-They are in .github/ and not in tests/ on purpose: tests/ is part of the
-source archive, so a new file there would change the release archives and
-their SHA-256. CI runs them with `python -m pytest .github/tests`.
+They are in .github/workflow-tests on purpose. The source archive includes
+every file or folder named like an entry of the sdist `include` list in
+pyproject.toml (such as "tests"), at any depth, so a new file in tests/ or in
+.github/tests/ would change the release archives and their SHA-256. CI runs
+them with `python -m pytest .github/workflow-tests`.
 
 The scripts of the workflow steps are read from the YAML file and run with
 bash the way GitHub Actions runs them (bash --noprofile --norc -eo pipefail),
@@ -18,6 +20,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -206,6 +209,17 @@ def test_build_and_publish_jobs_share_the_same_checks() -> None:
     publish = step("publish", PUBLISH_STEP)
     assert shared(build["run"]) == shared(publish["run"])
     assert build["env"] == publish["env"]
+
+
+def test_nothing_under_dot_github_goes_into_the_source_archive() -> None:
+    # hatchling reads each sdist `include` entry like a .gitignore line: an
+    # entry without a slash matches a file or folder of that name at any depth.
+    root = WORKFLOW.parents[2]
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    include = set(config["tool"]["hatch"]["build"]["targets"]["sdist"]["include"])
+    assert all("/" not in entry and "*" not in entry for entry in include)
+    for path in (root / ".github").rglob("*"):
+        assert not include & set(path.relative_to(root).parts), path
 
 
 # ------------------------------------------------------- inputs (D3) ---

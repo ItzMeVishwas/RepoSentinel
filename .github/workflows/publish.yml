@@ -41,7 +41,8 @@
 #   checked (they could contain workflow commands).
 # * Actions are pinned to full commit SHAs, like in ci.yml.
 # * npm runs with --ignore-scripts (scripts/build_release.py).
-# * Tests: .github/tests/test_publish_workflow.py runs the scripts below.
+# * Tests: .github/workflow-tests/test_publish_workflow.py runs the scripts
+#   below with bash.
 
 name: Publish
 
