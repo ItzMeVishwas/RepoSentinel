@@ -89,7 +89,9 @@ Per opportunity:
    on the pages read, so treat it as disclosed). See section 4.
 6. **Integrations.** Each live integration needs a binary installed by the
    user, version pinning, output parsing and a test against the real tool
-   (RepoSentinel's Gitleaks adapter is still unverified against a real binary).
+   (RepoSentinel's Gitleaks adapter has been tested against the real Gitleaks
+   8.30.1 release on Windows, Linux and macOS since this was written; other
+   releases remain untested).
    Gitleaks is now in maintenance mode (Verified). A generic **SARIF import**
    would let users bring results from any of these tools into the same history
    and comparison without RepoSentinel running them (Interpretation).
