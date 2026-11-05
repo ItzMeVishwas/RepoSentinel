@@ -625,12 +625,25 @@ downloads it; if it is not on `PATH` the check is reported as *skipped* and the
 scan as incomplete (exit code 3).
 
 RepoSentinel runs `gitleaks version` first. Releases older than 8.19.0 (which
-lack the `dir` command) make the check *skipped*. The adapter's flags were
-checked against Gitleaks' source code (v8.19.0 and current) and the behaviour
-is tested with a simulated Gitleaks, but **not yet against a real Gitleaks
-binary**. See [docs/integrations.md](docs/integrations.md) for the
-exact command line, the security reasoning behind each flag, how to verify it,
-and why OSV-Scanner and Zizmor are not integrated yet.
+lack the `dir` command) make the check *skipped*.
+
+How it is tested:
+
+* **Real Gitleaks 8.30.1:** `tests/test_gitleaks_real.py` runs the official,
+  checksum-verified 8.30.1 release (fetched by `scripts/fetch_gitleaks.py`) on
+  Windows, Linux and macOS. It checks relative paths, line numbers (also with
+  CRLF), that secrets stay redacted, that `gitleaks:allow` comments and the
+  scanned repository's own `.gitleaks.toml` are ignored, that a `gitleaks`
+  copy inside the scanned folder is never run, and the `.gitleaksignore`
+  behaviour. The CI job `gitleaks` repeats these tests on all three systems
+  for every change; it is not a required check.
+* **Other releases:** releases from 8.19.0 on are accepted, but only 8.30.1
+  has been tested. Without a real Gitleaks, the rest of the test suite uses a
+  simulated one.
+
+See [docs/integrations.md](docs/integrations.md) for the exact command line,
+the security reasoning behind each flag, how to verify another release, and
+why OSV-Scanner and Zizmor are not integrated yet.
 
 ## Development
 
@@ -673,21 +686,34 @@ symbolic-link test that cannot create its link fails instead of being skipped.
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main`/`master` and on every
-pull request, once the repository is on GitHub:
+pull request:
 
-* **test**: Ubuntu and Windows on Python 3.12, 3.13 and 3.14: ruff (lint and
-  formatting), strict mypy, pytest (symbolic-link tests are required on
-  Linux), the rules-reference check and a RepoSentinel scan of this repository.
+* **test**: Ubuntu, Windows and macOS on Python 3.12, 3.13 and 3.14: ruff
+  (lint and formatting), strict mypy, pytest (symbolic-link tests are
+  required on Linux), the rules-reference check and a RepoSentinel scan of
+  this repository. On Ubuntu and Windows it also runs the tests of the
+  publish workflow (`.github/workflow-tests/`).
 * **frontend**: TypeScript check and production build of the web interface.
 * **package**: a wheel without the web interface (every command but `ui` must
   work), then the release build (`twine check --strict`, `scripts/check_dist.py`),
   each installed into a fresh environment and smoke-tested.
 * **browser**: the end-to-end test in the runner's Google Chrome.
+* **browser-firefox**: the same end-to-end test in Firefox.
 * **sarif**: SARIF output validated against the official schema.
+* **gitleaks**: the real-Gitleaks tests on Ubuntu, Windows and macOS (see
+  [Optional Gitleaks integration](#optional-gitleaks-integration)).
 * **minimum-dependencies**: the tests against the lowest declared versions.
+* **reference-build**: rebuilds the 0.1.0 release commit in the pinned
+  release build environment and fails unless both archives have exactly
+  the published SHA-256 values (see [docs/releasing.md](docs/releasing.md)).
 
 The token can only read the repository, actions are pinned to full commit
-SHAs, and no secrets are used.
+SHAs, and no secrets are used. The macOS jobs, `browser-firefox`, `gitleaks`
+and `reference-build` are not required checks; GitHub's macOS runners are
+sometimes unavailable, and such a job is then cancelled without running.
+
+Releases are published to PyPI by a separate, hand-started workflow,
+`.github/workflows/publish.yml`; see [docs/releasing.md](docs/releasing.md).
 
 Project layout:
 
@@ -713,8 +739,9 @@ src/reposentinel/
 tests/               pytest suite
 frontend/            web interface source (React, TypeScript, Vite) and e2e test
 scripts/             release build, package checks, SARIF validation, demo and docs generators
-docs/                architecture, rules, web interface, SARIF, research, release readiness
-.github/             CI workflow, Dependabot, issue and pull-request templates
+docs/                architecture, rules, web interface, SARIF, integrations, research, releasing
+.github/             CI and publish workflows, the release build action, Dependabot,
+                     issue and pull-request templates
 SECURITY.md          how to report a vulnerability privately
 ```
 
@@ -723,19 +750,27 @@ together and how to add a rule.
 
 ## Roadmap
 
+Done for 0.1.0:
+
+* Hosted CI on every change (Ubuntu, Windows and macOS; see
+  [Continuous integration](#continuous-integration)).
+* The Gitleaks adapter tested against a real, checksum-verified Gitleaks
+  release (8.30.1).
+* Publication on PyPI as
+  [`reposentinel-scanner`](https://pypi.org/project/reposentinel-scanner/),
+  with trusted publishing.
+
 Planned, **not implemented** (details and prerequisites in
 [docs/feature-research.md](docs/feature-research.md)):
 
-1. First hosted CI run, and a usability session with developers who have
-   not seen RepoSentinel.
-2. Verify the Gitleaks adapter against a real Gitleaks release.
-3. Git-history secret scanning, read-only and without running Git (the next
+1. A usability session with developers who have not seen RepoSentinel.
+2. Git-history secret scanning, read-only and without running Git (the next
    major capability).
-4. Finding decisions (false positive, accepted risk with expiry) that never
+3. Finding decisions (false positive, accepted risk with expiry) that never
    hide a finding without a visible record.
-5. Importing other scanners' SARIF files; then optional offline dependency
+4. Importing other scanners' SARIF files; then optional offline dependency
    auditing with OSV-Scanner.
-6. More GitHub Actions rules, or a Zizmor integration.
+5. More GitHub Actions rules, or a Zizmor integration.
 
 ## Contributing
 
